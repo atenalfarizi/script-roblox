@@ -13,12 +13,14 @@ if not ok or not GiftRemote then
 end
 
 local Prices = {
-	["Totem"] = 1.20,
 	["Glitched Cube"] = 1.00,
 	["Dark Matter"] = 1.12,
-	["Dinosaur Skull"] = 1.50,
+	["Totem"] = 1.20,
 	["Saturn"] = 1.35,
+	["Dinosaur Skull"] = 1.50,
 	["Car"] = 1.70,
+	["Glow Shroom"] = 1.90,
+	["Chaos Ruin"] = 2.10,
 }
 
 pcall(function()
