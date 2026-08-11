@@ -2,11 +2,11 @@
 local Games = {
 	[133188236593503] = {
 		name = "Magic Loot",
-		url = "https://raw.githubusercontent.com/atenalfarizi/script-roblox/main/games/MagicLoot.lua",
+		url = "https://raw.githubusercontent.com/atenalfarizi/script-roblox/refs/heads/main/games/MagicLoot.lua",
 	},
 	[74193805629461] = {
 		name = "Mine Per Click",
-		url = "https://raw.githubusercontent.com/atenalfarizi/script-roblox/main/games/MinePerClick.lua",,
+		url = "https://raw.githubusercontent.com/atenalfarizi/script-roblox/refs/heads/main/games/MinePerClick.lua",,
 	},
 }
 
