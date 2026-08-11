@@ -6,7 +6,7 @@ local Games = {
 	},
 	[74193805629461] = {
 		name = "Mine Per Click",
-		url = "https://raw.githubusercontent.com/atenalfarizi/script-roblox/refs/heads/main/games/MinePerClick.lua",,
+		url = "https://raw.githubusercontent.com/atenalfarizi/script-roblox/main/games/MinePerClick.lua",,
 	},
 }
 
