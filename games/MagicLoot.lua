@@ -160,7 +160,7 @@ minBtn.MouseButton1Click:Connect(function()
 		content.Visible = false
 		f.Size = miniSize
 		minBtn.Text = "+"
-		title.Text = "  Gift by Value (minimized)"
+		title.Text = "  Gift by Value "
 	else
 		content.Visible = true
 		f.Size = normalSize
