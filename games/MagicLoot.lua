@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (M/B/T + item baru) - Mobile Friendly + Minimize
+-- Magic Loot - Gift by Value (M/B/T + item baru) - Mobile Friendly + Minimize + Center
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
@@ -60,10 +60,11 @@ gui.Name = "MLGiftValue"
 gui.ResetOnSpawn = false
 gui.Parent = PG
 
--- ========== MAIN FRAME (lebih kecil) ==========
+-- ========== MAIN FRAME ==========
 local f = Instance.new("Frame", gui)
-f.Size = UDim2.new(0, 240, 0, 265)          -- sebelumnya 300x310
-f.Position = UDim2.new(0.02, 0, 0.12, 0)
+f.Size = UDim2.new(0, 240, 0, 270)
+f.AnchorPoint = Vector2.new(0.5, 0.5)
+f.Position = UDim2.new(0.5, 0, 0.5, 0)
 f.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
 f.ClipsDescendants = true
 Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
@@ -91,7 +92,7 @@ minBtn.Font = Enum.Font.GothamBold
 minBtn.TextSize = 16
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 8)
 
--- Content container (yang di-hide saat minimize)
+-- Content
 local content = Instance.new("Frame", f)
 content.Size = UDim2.new(1, 0, 1, -24)
 content.Position = UDim2.new(0, 0, 0, 24)
@@ -99,8 +100,8 @@ content.BackgroundTransparency = 1
 content.Name = "Content"
 
 local st = Instance.new("TextLabel", content)
-st.Size = UDim2.new(1, -10, 0, 38)
-st.Position = UDim2.new(0, 5, 0, 2)
+st.Size = UDim2.new(1, -12, 0, 36)
+st.Position = UDim2.new(0, 6, 0, 4)
 st.BackgroundTransparency = 1
 st.Text = "Scan 1x → gift pelan (anti spam)"
 st.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -109,49 +110,70 @@ st.TextSize = 11
 st.TextWrapped = true
 st.TextXAlignment = Enum.TextXAlignment.Left
 
-local function mk(y, t, c)
-	local b = Instance.new("TextButton", content)
-	b.Size = UDim2.new(1, -10, 0, 24)
-	b.Position = UDim2.new(0, 5, 0, y)
-	b.BackgroundColor3 = c
-	b.Text = t
-	b.TextColor3 = Color3.new(1,1,1)
-	b.Font = Enum.Font.GothamBold
-	b.TextSize = 12
-	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
-	return b
-end
-
+-- Player list
 local pScroll = Instance.new("ScrollingFrame", content)
-pScroll.Size = UDim2.new(1, -10, 0, 55)
-pScroll.Position = UDim2.new(0, 5, 0, 42)
+pScroll.Size = UDim2.new(1, -12, 0, 52)
+pScroll.Position = UDim2.new(0, 6, 0, 42)
 pScroll.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
 pScroll.BorderSizePixel = 0
 pScroll.ScrollBarThickness = 3
 Instance.new("UICorner", pScroll).CornerRadius = UDim.new(0, 5)
 Instance.new("UIListLayout", pScroll).Padding = UDim.new(0, 2)
 
+-- Target value
 local valBox = Instance.new("TextBox", content)
-valBox.Size = UDim2.new(1, -10, 0, 26)
-valBox.Position = UDim2.new(0, 5, 0, 102)
+valBox.Size = UDim2.new(1, -12, 0, 26)
+valBox.Position = UDim2.new(0, 6, 0, 100)
 valBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-valBox.PlaceholderText = "Target: 500=500M"
+valBox.PlaceholderText = "Target: 500 = 500M"
 valBox.Text = "500"
 valBox.TextColor3 = Color3.new(1,1,1)
 valBox.Font = Enum.Font.GothamBold
 valBox.TextSize = 13
 Instance.new("UICorner", valBox).CornerRadius = UDim.new(0, 5)
 
-local startBtn = mk(134, "Start Gift by Value", Color3.fromRGB(0, 140, 60))
-local scanBtn  = mk(162, "Scan Inventory (1x)", Color3.fromRGB(70, 70, 90))
-local stopBtn  = mk(190, "Stop", Color3.fromRGB(140, 40, 40))
+-- ========== 3 TOMBOL TENGAH (lebih rapi) ==========
+local btnContainer = Instance.new("Frame", content)
+btnContainer.Size = UDim2.new(1, -12, 0, 100)
+btnContainer.Position = UDim2.new(0, 6, 0, 134)
+btnContainer.BackgroundTransparency = 1
+
+local function createBtn(text, color, y)
+	local b = Instance.new("TextButton", btnContainer)
+	b.Size = UDim2.new(1, 0, 0, 28)
+	b.Position = UDim2.new(0, 0, 0, y)
+	b.BackgroundColor3 = color
+	b.Text = text
+	b.TextColor3 = Color3.new(1,1,1)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 12
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+
+	-- efek hover sederhana
+	b.MouseEnter:Connect(function()
+		b.BackgroundColor3 = Color3.new(
+			math.min(color.R + 0.08, 1),
+			math.min(color.G + 0.08, 1),
+			math.min(color.B + 0.08, 1)
+		)
+	end)
+	b.MouseLeave:Connect(function()
+		b.BackgroundColor3 = color
+	end)
+
+	return b
+end
+
+local startBtn = createBtn("▶  Start Gift by Value", Color3.fromRGB(0, 145, 70), 0)
+local scanBtn  = createBtn("🔍  Scan Inventory", Color3.fromRGB(55, 85, 140), 34)
+local stopBtn  = createBtn("■  Stop", Color3.fromRGB(160, 45, 45), 68)
 
 local function status(t)
 	st.Text = t
 end
 
--- ========== Minimize Logic ==========
-local normalSize = UDim2.new(0, 240, 0, 265)
+-- ========== Minimize ==========
+local normalSize = UDim2.new(0, 240, 0, 270)
 local miniSize   = UDim2.new(0, 240, 0, 24)
 
 minBtn.MouseButton1Click:Connect(function()
@@ -160,7 +182,7 @@ minBtn.MouseButton1Click:Connect(function()
 		content.Visible = false
 		f.Size = miniSize
 		minBtn.Text = "+"
-		title.Text = "  Gift by Value "
+		title.Text = "  Gift by Value (minimized)"
 	else
 		content.Visible = true
 		f.Size = normalSize
@@ -310,8 +332,8 @@ local function runGiftByValue()
 	if #cachedItems == 0 then status("Scan dulu (1x)") return end
 
 	running = true
-	startBtn.Text = "Gifting..."
-	startBtn.BackgroundColor3 = Color3.fromRGB(180, 90, 40)
+	startBtn.Text = "⏳  Gifting..."
+	startBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 40)
 
 	local uid = selectedPlayer.UserId
 	local gifted, okCount, failCount = 0, 0, 0
@@ -372,8 +394,8 @@ local function runGiftByValue()
 	end
 
 	running = false
-	startBtn.Text = "Start Gift by Value"
-	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
+	startBtn.Text = "▶  Start Gift by Value"
+	startBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 70)
 	status(string.format("Selesai → %s\n%s | OK %d | FAIL %d",
 		selectedPlayer and selectedPlayer.Name or "?",
 		formatVal(gifted), okCount, failCount
@@ -385,8 +407,8 @@ scanBtn.MouseButton1Click:Connect(function() task.spawn(scanInventory) end)
 stopBtn.MouseButton1Click:Connect(function()
 	running = false
 	status("Stopped")
-	startBtn.Text = "Start Gift by Value"
-	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
+	startBtn.Text = "▶  Start Gift by Value"
+	startBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 70)
 end)
 
 -- Drag
@@ -418,4 +440,4 @@ Players.PlayerAdded:Connect(function() task.wait(0.3) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.2) refreshPlayers() end)
 refreshPlayers()
 
-print("Gift M/B/T + Minimize loaded")
+print("Gift M/B/T + Better Buttons loaded")
