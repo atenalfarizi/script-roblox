@@ -1,6 +1,7 @@
--- Magic Loot - Gift by Value (M/B/T + item baru) - Mobile Friendly + Minimize + Center
+-- Magic Loot - Gift by Value (M/B/T + item baru) - Mobile Friendly + Minimize + Center + Fixed Drag
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local PG = LP:WaitForChild("PlayerGui")
 local RE = RS:WaitForChild("Msg"):WaitForChild("RemoteEvent"):WaitForChild("NetWorkRemoteEvent")
@@ -34,7 +35,6 @@ local delayAfterGift = 2.5
 local delayBetween = 2.0
 local minimized = false
 
--- internal M → tampilan M / B / T
 local function formatVal(m)
 	m = tonumber(m) or 0
 	local abs = math.abs(m)
@@ -58,6 +58,7 @@ end)
 local gui = Instance.new("ScreenGui")
 gui.Name = "MLGiftValue"
 gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = PG
 
 -- ========== MAIN FRAME ==========
@@ -67,9 +68,10 @@ f.AnchorPoint = Vector2.new(0.5, 0.5)
 f.Position = UDim2.new(0.5, 0, 0.5, 0)
 f.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
 f.ClipsDescendants = true
+f.Active = true
 Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 
--- Title bar
+-- Title bar (area drag)
 local title = Instance.new("TextLabel", f)
 title.Size = UDim2.new(1, -28, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 0)
@@ -79,6 +81,8 @@ title.TextColor3 = Color3.new(1,1,1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
 title.TextXAlignment = Enum.TextXAlignment.Left
+title.Active = true
+title.Selectable = false
 Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
 
 -- Minimize button
@@ -90,6 +94,7 @@ minBtn.Text = "−"
 minBtn.TextColor3 = Color3.new(1,1,1)
 minBtn.Font = Enum.Font.GothamBold
 minBtn.TextSize = 16
+minBtn.ZIndex = 2
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 8)
 
 -- Content
@@ -110,7 +115,6 @@ st.TextSize = 11
 st.TextWrapped = true
 st.TextXAlignment = Enum.TextXAlignment.Left
 
--- Player list
 local pScroll = Instance.new("ScrollingFrame", content)
 pScroll.Size = UDim2.new(1, -12, 0, 52)
 pScroll.Position = UDim2.new(0, 6, 0, 42)
@@ -120,7 +124,6 @@ pScroll.ScrollBarThickness = 3
 Instance.new("UICorner", pScroll).CornerRadius = UDim.new(0, 5)
 Instance.new("UIListLayout", pScroll).Padding = UDim.new(0, 2)
 
--- Target value
 local valBox = Instance.new("TextBox", content)
 valBox.Size = UDim2.new(1, -12, 0, 26)
 valBox.Position = UDim2.new(0, 6, 0, 100)
@@ -132,7 +135,7 @@ valBox.Font = Enum.Font.GothamBold
 valBox.TextSize = 13
 Instance.new("UICorner", valBox).CornerRadius = UDim.new(0, 5)
 
--- ========== 3 TOMBOL TENGAH (lebih rapi) ==========
+-- ========== 3 TOMBOL ==========
 local btnContainer = Instance.new("Frame", content)
 btnContainer.Size = UDim2.new(1, -12, 0, 100)
 btnContainer.Position = UDim2.new(0, 6, 0, 134)
@@ -149,7 +152,6 @@ local function createBtn(text, color, y)
 	b.TextSize = 12
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
 
-	-- efek hover sederhana
 	b.MouseEnter:Connect(function()
 		b.BackgroundColor3 = Color3.new(
 			math.min(color.R + 0.08, 1),
@@ -188,6 +190,68 @@ minBtn.MouseButton1Click:Connect(function()
 		f.Size = normalSize
 		minBtn.Text = "−"
 		title.Text = "  Gift by Value"
+	end
+end)
+
+-- ========== DRAG SYSTEM (FIXED) ==========
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+local function beginDrag(input)
+	dragging = true
+	dragStart = input.Position
+	startPos = f.Position
+end
+
+local function updateDrag(input)
+	if not dragging then return end
+	local delta = input.Position - dragStart
+	f.Position = UDim2.new(
+		startPos.X.Scale,
+		startPos.X.Offset + delta.X,
+		startPos.Y.Scale,
+		startPos.Y.Offset + delta.Y
+	)
+end
+
+local function endDrag()
+	dragging = false
+end
+
+-- Bisa drag dari title bar
+title.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		beginDrag(input)
+	end
+end)
+
+title.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		endDrag()
+	end
+end)
+
+-- Juga bisa drag dari frame kosong (bagian atas)
+f.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		-- Hanya jika klik di area title (Y < 24)
+		local relativeY = input.Position.Y - f.AbsolutePosition.Y
+		if relativeY <= 24 then
+			beginDrag(input)
+		end
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		updateDrag(input)
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		endDrag()
 	end
 end)
 
@@ -411,33 +475,8 @@ stopBtn.MouseButton1Click:Connect(function()
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 70)
 end)
 
--- Drag
-local UIS = game:GetService("UserInputService")
-local drag, ds, dp, di
-title.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-		drag = true
-		ds = i.Position
-		dp = f.Position
-		i.Changed:Connect(function()
-			if i.UserInputState == Enum.UserInputState.End then drag = false end
-		end)
-	end
-end)
-title.InputChanged:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
-		di = i
-	end
-end)
-UIS.InputChanged:Connect(function(i)
-	if i == di and drag then
-		local d = i.Position - ds
-		f.Position = UDim2.new(dp.X.Scale, dp.X.Offset + d.X, dp.Y.Scale, dp.Y.Offset + d.Y)
-	end
-end)
-
 Players.PlayerAdded:Connect(function() task.wait(0.3) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.2) refreshPlayers() end)
 refreshPlayers()
 
-print("Gift M/B/T + Better Buttons loaded")
+print("Gift M/B/T + Fixed Drag loaded")
