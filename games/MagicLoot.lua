@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (M/B/T + item baru) - Mobile Friendly + Minimize + Center + Fixed Drag
+-- Magic Loot - Gift by Value (Unit: B) - Optimized Fit
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -8,9 +8,9 @@ local RE = RS:WaitForChild("Msg"):WaitForChild("RemoteEvent"):WaitForChild("NetW
 local GIFT = "赠送请求"
 local SWITCH_HELD = "背包工具栏切换手持"
 
--- Harga internal = M (1 = 1M). Edit angka sesuai market.
+-- Harga internal dalam M (1 = 1M)
+-- Target input dalam B (1 = 1B = 1000M)
 local Prices = {
-	-- lama
 	["Ritual Mask"] = 225, ["祭祀面具"] = 225,
 	["Staff Gem"] = 200, ["权杖宝石"] = 200,
 	["Dwarf Emblem"] = 175, ["矮人徽章"] = 175, ["矮人族徽"] = 175,
@@ -18,7 +18,6 @@ local Prices = {
 	["Eye of Stone"] = 125, ["石之眼"] = 125,
 	["Ginseng"] = 60, ["人参"] = 60,
 	["Queen Blood Sac"] = 55, ["蜘蛛血囊"] = 55, ["女王血囊"] = 55,
-	-- baru
 	["Bear Bone"] = 1120,
 	["Ice Magic Crystal"] = 1340,
 	["Bear Paw"] = 1610,
@@ -34,20 +33,19 @@ local delayHold = 1.0
 local delayAfterGift = 2.5
 local delayBetween = 2.0
 local minimized = false
+local lastGifted = 0
 
 local function formatVal(m)
 	m = tonumber(m) or 0
 	local abs = math.abs(m)
 	if abs >= 1e6 then
 		return string.format("%.2fT", m / 1e6)
-	elseif abs >= 1e3 then
-		return string.format("%.2fB", m / 1e3)
 	elseif abs >= 1 then
-		return string.format("%.0fM", m)
+		return string.format("%.2fB", m / 1e3)
 	elseif abs > 0 then
-		return string.format("%.2fM", m)
+		return string.format("%.3fB", m / 1e3)
 	end
-	return "0"
+	return "0B"
 end
 
 pcall(function()
@@ -61,7 +59,6 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = PG
 
--- ========== MAIN FRAME ==========
 local f = Instance.new("Frame", gui)
 f.Size = UDim2.new(0, 240, 0, 270)
 f.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -71,12 +68,11 @@ f.ClipsDescendants = true
 f.Active = true
 Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 
--- Title bar (area drag)
 local title = Instance.new("TextLabel", f)
 title.Size = UDim2.new(1, -28, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 0)
 title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-title.Text = "  Gift by Value"
+title.Text = "  Gift by Value (B)"
 title.TextColor3 = Color3.new(1,1,1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
@@ -85,7 +81,6 @@ title.Active = true
 title.Selectable = false
 Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
 
--- Minimize button
 local minBtn = Instance.new("TextButton", f)
 minBtn.Size = UDim2.new(0, 26, 0, 24)
 minBtn.Position = UDim2.new(1, -26, 0, 0)
@@ -97,7 +92,6 @@ minBtn.TextSize = 16
 minBtn.ZIndex = 2
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 8)
 
--- Content
 local content = Instance.new("Frame", f)
 content.Size = UDim2.new(1, 0, 1, -24)
 content.Position = UDim2.new(0, 0, 0, 24)
@@ -108,7 +102,7 @@ local st = Instance.new("TextLabel", content)
 st.Size = UDim2.new(1, -12, 0, 36)
 st.Position = UDim2.new(0, 6, 0, 4)
 st.BackgroundTransparency = 1
-st.Text = "Scan 1x → gift pelan (anti spam)"
+st.Text = "Scan 1x → gift pelan (unit: B)"
 st.TextColor3 = Color3.fromRGB(180, 180, 180)
 st.Font = Enum.Font.Gotham
 st.TextSize = 11
@@ -128,14 +122,13 @@ local valBox = Instance.new("TextBox", content)
 valBox.Size = UDim2.new(1, -12, 0, 26)
 valBox.Position = UDim2.new(0, 6, 0, 100)
 valBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-valBox.PlaceholderText = "Target: 500 = 500M"
-valBox.Text = "500"
+valBox.PlaceholderText = "Target: 1 = 1B"
+valBox.Text = "1"
 valBox.TextColor3 = Color3.new(1,1,1)
 valBox.Font = Enum.Font.GothamBold
 valBox.TextSize = 13
 Instance.new("UICorner", valBox).CornerRadius = UDim.new(0, 5)
 
--- ========== 3 TOMBOL ==========
 local btnContainer = Instance.new("Frame", content)
 btnContainer.Size = UDim2.new(1, -12, 0, 100)
 btnContainer.Position = UDim2.new(0, 6, 0, 134)
@@ -151,18 +144,12 @@ local function createBtn(text, color, y)
 	b.Font = Enum.Font.GothamBold
 	b.TextSize = 12
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-
 	b.MouseEnter:Connect(function()
-		b.BackgroundColor3 = Color3.new(
-			math.min(color.R + 0.08, 1),
-			math.min(color.G + 0.08, 1),
-			math.min(color.B + 0.08, 1)
-		)
+		b.BackgroundColor3 = Color3.new(math.min(color.R+0.08,1), math.min(color.G+0.08,1), math.min(color.B+0.08,1))
 	end)
 	b.MouseLeave:Connect(function()
 		b.BackgroundColor3 = color
 	end)
-
 	return b
 end
 
@@ -174,7 +161,6 @@ local function status(t)
 	st.Text = t
 end
 
--- ========== Minimize ==========
 local normalSize = UDim2.new(0, 240, 0, 270)
 local miniSize   = UDim2.new(0, 240, 0, 24)
 
@@ -189,73 +175,54 @@ minBtn.MouseButton1Click:Connect(function()
 		content.Visible = true
 		f.Size = normalSize
 		minBtn.Text = "−"
-		title.Text = "  Gift by Value"
+		title.Text = "  Gift by Value (B)"
 	end
 end)
 
--- ========== DRAG SYSTEM (FIXED) ==========
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
+-- Drag
+local dragging, dragStart, startPos = false, nil, nil
 local function beginDrag(input)
 	dragging = true
 	dragStart = input.Position
 	startPos = f.Position
 end
-
 local function updateDrag(input)
 	if not dragging then return end
 	local delta = input.Position - dragStart
-	f.Position = UDim2.new(
-		startPos.X.Scale,
-		startPos.X.Offset + delta.X,
-		startPos.Y.Scale,
-		startPos.Y.Offset + delta.Y
-	)
+	f.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
-
 local function endDrag()
 	dragging = false
 end
 
--- Bisa drag dari title bar
 title.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		beginDrag(input)
 	end
 end)
-
 title.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		endDrag()
 	end
 end)
-
--- Juga bisa drag dari frame kosong (bagian atas)
 f.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		-- Hanya jika klik di area title (Y < 24)
-		local relativeY = input.Position.Y - f.AbsolutePosition.Y
-		if relativeY <= 24 then
+		if (input.Position.Y - f.AbsolutePosition.Y) <= 24 then
 			beginDrag(input)
 		end
 	end
 end)
-
 UIS.InputChanged:Connect(function(input)
 	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		updateDrag(input)
 	end
 end)
-
 UIS.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		endDrag()
 	end
 end)
 
--- ========== Player List ==========
 local function refreshPlayers()
 	for _, c in ipairs(pScroll:GetChildren()) do
 		if c:IsA("TextButton") then c:Destroy() end
@@ -275,9 +242,7 @@ local function refreshPlayers()
 				selectedPlayer = plr
 				status("Target: " .. plr.Name)
 				for _, x in ipairs(pScroll:GetChildren()) do
-					if x:IsA("TextButton") then
-						x.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-					end
+					if x:IsA("TextButton") then x.BackgroundColor3 = Color3.fromRGB(45, 45, 55) end
 				end
 				b.BackgroundColor3 = Color3.fromRGB(0, 120, 70)
 			end)
@@ -356,9 +321,7 @@ local function scanInventory()
 		status("0 item — buka backpack dulu")
 	else
 		local preview = table.concat(parts, ", ")
-		if #preview > 70 then
-			preview = preview:sub(1, 67) .. "..."
-		end
+		if #preview > 70 then preview = preview:sub(1, 67) .. "..." end
 		status(string.format("Cache %d item | Total %s\n%s", #found, formatVal(total), preview))
 	end
 end
@@ -388,29 +351,55 @@ local function giftTo(uid)
 	end)
 end
 
+-- Ambil item TERBESAR yang masih muat di sisa target
+local function pickBestFit(remaining, items)
+	local best, bestIdx = nil, nil
+	for i, it in ipairs(items) do
+		if it.price <= remaining then
+			if not best or it.price > best.price then
+				best = it
+				bestIdx = i
+			end
+		end
+	end
+	return best, bestIdx
+end
+
 local function runGiftByValue()
 	if running then return end
 	if not selectedPlayer then status("Pilih player") return end
-	local target = tonumber(valBox.Text) or 0
-	if target <= 0 then status("Isi target (500=500M)") return end
+
+	local targetB = tonumber(valBox.Text) or 0
+	if targetB <= 0 then status("Isi target (1 = 1B)") return end
+	local target = targetB * 1000 -- B → M
+
 	if #cachedItems == 0 then status("Scan dulu (1x)") return end
 
 	running = true
+	lastGifted = 0
 	startBtn.Text = "⏳  Gifting..."
 	startBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 40)
 
 	local uid = selectedPlayer.UserId
 	local gifted, okCount, failCount = 0, 0, 0
-	local queue = {}
+	local pool = {}
 	for _, it in ipairs(cachedItems) do
-		table.insert(queue, it)
+		table.insert(pool, it)
 	end
 
-	for _, it in ipairs(queue) do
-		if not running then break end
+	while running do
 		if gifted >= target then break end
 		if not selectedPlayer.Parent then
 			status("Target keluar")
+			break
+		end
+
+		local remaining = target - gifted
+		local it, idx = pickBestFit(remaining, pool)
+
+		-- Tidak ada item yang muat → stop (hindari overshoot besar)
+		if not it then
+			status(string.format("Tidak ada item yang muat\nSisa: %s | Total: %s", formatVal(remaining), formatVal(gifted)))
 			break
 		end
 
@@ -425,8 +414,14 @@ local function runGiftByValue()
 
 		if not isHeld(it.onlyID) then
 			failCount += 1
+			-- buang dari pool biar tidak diulang terus
+			table.remove(pool, idx)
 			status("Gagal hold " .. it.name)
 			task.wait(delayBetween)
+			if failCount >= 6 then
+				status("Banyak gagal — stop. Naikkan delay.")
+				break
+			end
 			continue
 		end
 
@@ -436,31 +431,38 @@ local function runGiftByValue()
 
 		if not isHeld(it.onlyID) then
 			gifted += it.price
+			lastGifted = gifted
 			okCount += 1
+
+			-- hapus dari pool + cachedItems
+			table.remove(pool, idx)
 			for j = #cachedItems, 1, -1 do
 				if tostring(cachedItems[j].onlyID) == tostring(it.onlyID) then
 					table.remove(cachedItems, j)
 					break
 				end
 			end
+
 			status(string.format("OK %s +%s\n%s / %s", it.name, formatVal(it.price), formatVal(gifted), formatVal(target)))
 		else
 			failCount += 1
 			status(string.format("FAIL %s (rate limit?)\nfail %d — jeda ekstra", it.name, failCount))
 			task.wait(3.0)
+			if failCount >= 6 then
+				status("Banyak gagal — stop. Naikkan delay.")
+				break
+			end
 		end
 
 		task.wait(delayBetween)
-		if failCount >= 6 then
-			status("Banyak gagal — stop. Naikkan delay.")
-			break
-		end
 	end
 
 	running = false
 	startBtn.Text = "▶  Start Gift by Value"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 70)
-	status(string.format("Selesai → %s\n%s | OK %d | FAIL %d",
+	lastGifted = gifted
+
+	status(string.format("Selesai → %s\nTotal: %s | OK %d | FAIL %d",
 		selectedPlayer and selectedPlayer.Name or "?",
 		formatVal(gifted), okCount, failCount
 	))
@@ -468,15 +470,16 @@ end
 
 startBtn.MouseButton1Click:Connect(function() task.spawn(runGiftByValue) end)
 scanBtn.MouseButton1Click:Connect(function() task.spawn(scanInventory) end)
+
 stopBtn.MouseButton1Click:Connect(function()
 	running = false
-	status("Stopped")
 	startBtn.Text = "▶  Start Gift by Value"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 70)
+	status(string.format("Stopped\nTotal terkirim: %s", formatVal(lastGifted)))
 end)
 
 Players.PlayerAdded:Connect(function() task.wait(0.3) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.2) refreshPlayers() end)
 refreshPlayers()
 
-print("Gift M/B/T + Fixed Drag loaded")
+print("Gift by Value Optimized Fit loaded")
