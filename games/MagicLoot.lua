@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (Unit: B) - Optimized Fit
+-- Magic Loot - Gift by Value (Unit: B) - Prefer reach target, minimal overshoot
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -170,12 +170,12 @@ minBtn.MouseButton1Click:Connect(function()
 		content.Visible = false
 		f.Size = miniSize
 		minBtn.Text = "+"
-		title.Text = "  Gift by Value (minimized)"
+		title.Text = "  Gift by Value (requestan cayang)"
 	else
 		content.Visible = true
 		f.Size = normalSize
 		minBtn.Text = "−"
-		title.Text = "  Gift by Value (B)"
+		title.Text = "  Gift by Value (requestan cayang)"
 	end
 end)
 
@@ -351,18 +351,37 @@ local function giftTo(uid)
 	end)
 end
 
--- Ambil item TERBESAR yang masih muat di sisa target
-local function pickBestFit(remaining, items)
-	local best, bestIdx = nil, nil
+--[[
+  Pilih item:
+  1. Item TERBESAR yang masih muat di remaining (tanpa overshoot)
+  2. Kalau tidak ada → item TERKECIL yang melebihi remaining
+     (supaya target tetap tercapai, overshoot seminimal mungkin)
+]]
+local function pickItem(remaining, items)
+	local bestFit, bestFitIdx = nil, nil       -- terbesar yang <= remaining
+	local smallestOver, smallestOverIdx = nil, nil -- terkecil yang > remaining
+
 	for i, it in ipairs(items) do
 		if it.price <= remaining then
-			if not best or it.price > best.price then
-				best = it
-				bestIdx = i
+			if not bestFit or it.price > bestFit.price then
+				bestFit = it
+				bestFitIdx = i
+			end
+		else
+			if not smallestOver or it.price < smallestOver.price then
+				smallestOver = it
+				smallestOverIdx = i
 			end
 		end
 	end
-	return best, bestIdx
+
+	if bestFit then
+		return bestFit, bestFitIdx, false   -- false = tidak overshoot
+	end
+	if smallestOver then
+		return smallestOver, smallestOverIdx, true  -- true = sedikit overshoot
+	end
+	return nil, nil, false
 end
 
 local function runGiftByValue()
@@ -393,17 +412,21 @@ local function runGiftByValue()
 			status("Target keluar")
 			break
 		end
-
-		local remaining = target - gifted
-		local it, idx = pickBestFit(remaining, pool)
-
-		-- Tidak ada item yang muat → stop (hindari overshoot besar)
-		if not it then
-			status(string.format("Tidak ada item yang muat\nSisa: %s | Total: %s", formatVal(remaining), formatVal(gifted)))
+		if #pool == 0 then
+			status(string.format("Item habis\nTotal: %s", formatVal(gifted)))
 			break
 		end
 
-		status(string.format("Hold %s (%s)\n%s / %s", it.name, formatVal(it.price), formatVal(gifted), formatVal(target)))
+		local remaining = target - gifted
+		local it, idx, isOver = pickItem(remaining, pool)
+
+		if not it then
+			status(string.format("Tidak ada item\nTotal: %s", formatVal(gifted)))
+			break
+		end
+
+		local tag = isOver and " (over)" or ""
+		status(string.format("Hold %s (%s)%s\n%s / %s", it.name, formatVal(it.price), tag, formatVal(gifted), formatVal(target)))
 		holdByOnlyID(it.onlyID)
 		task.wait(delayHold)
 
@@ -414,7 +437,6 @@ local function runGiftByValue()
 
 		if not isHeld(it.onlyID) then
 			failCount += 1
-			-- buang dari pool biar tidak diulang terus
 			table.remove(pool, idx)
 			status("Gagal hold " .. it.name)
 			task.wait(delayBetween)
@@ -434,7 +456,6 @@ local function runGiftByValue()
 			lastGifted = gifted
 			okCount += 1
 
-			-- hapus dari pool + cachedItems
 			table.remove(pool, idx)
 			for j = #cachedItems, 1, -1 do
 				if tostring(cachedItems[j].onlyID) == tostring(it.onlyID) then
@@ -462,9 +483,10 @@ local function runGiftByValue()
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 145, 70)
 	lastGifted = gifted
 
-	status(string.format("Selesai → %s\nTotal: %s | OK %d | FAIL %d",
+	local note = gifted >= target and "✓ target tercapai" or "item kurang"
+	status(string.format("Selesai → %s\nTotal: %s | %s\nOK %d | FAIL %d",
 		selectedPlayer and selectedPlayer.Name or "?",
-		formatVal(gifted), okCount, failCount
+		formatVal(gifted), note, okCount, failCount
 	))
 end
 
@@ -482,4 +504,4 @@ Players.PlayerAdded:Connect(function() task.wait(0.3) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.2) refreshPlayers() end)
 refreshPlayers()
 
-print("Gift by Value Optimized Fit loaded")
+print("Gift by Value - Reach target (minimal overshoot) loaded")
