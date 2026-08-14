@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (Unit: B) - Prefer reach target, minimal overshoot
+-- Magic Loot - Gift by Value (Unit: B) - Dari terkecil, min 1B
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -25,6 +25,8 @@ local Prices = {
 	["Blue Dragon Egg"] = 2320,
 	["Frost Vein"] = 2780,
 }
+
+local MIN_ITEM_VALUE = 1000 -- 1B (internal M)
 
 local selectedPlayer = nil
 local running = false
@@ -102,7 +104,7 @@ local st = Instance.new("TextLabel", content)
 st.Size = UDim2.new(1, -12, 0, 36)
 st.Position = UDim2.new(0, 6, 0, 4)
 st.BackgroundTransparency = 1
-st.Text = "Scan 1x → gift pelan (unit: B)"
+st.Text = "Scan 1x → dari terkecil (min 1B)"
 st.TextColor3 = Color3.fromRGB(180, 180, 180)
 st.Font = Enum.Font.Gotham
 st.TextSize = 11
@@ -170,12 +172,12 @@ minBtn.MouseButton1Click:Connect(function()
 		content.Visible = false
 		f.Size = miniSize
 		minBtn.Text = "+"
-		title.Text = "  Gift by Value (requestan cayang)"
+		title.Text = "  Halo Cayang"
 	else
 		content.Visible = true
 		f.Size = normalSize
 		minBtn.Text = "−"
-		title.Text = "  Gift by Value (requestan cayang)"
+		title.Text = "  Gift by Value"
 	end
 end)
 
@@ -299,7 +301,8 @@ local function scanInventory()
 					end
 				end
 			end
-			if matchedName and price > 0 then
+			-- hanya simpan item >= 1B
+			if matchedName and price >= MIN_ITEM_VALUE then
 				seen[tostring(oid)] = true
 				table.insert(found, {
 					onlyID = tonumber(oid) or oid,
@@ -309,7 +312,8 @@ local function scanInventory()
 			end
 		end
 	end
-	table.sort(found, function(a, b) return a.price > b.price end)
+	-- urut dari TERKECIL
+	table.sort(found, function(a, b) return a.price < b.price end)
 	cachedItems = found
 	local total = 0
 	local parts = {}
@@ -318,11 +322,11 @@ local function scanInventory()
 		table.insert(parts, string.format("%s %s", it.name, formatVal(it.price)))
 	end
 	if #found == 0 then
-		status("0 item — buka backpack dulu")
+		status("0 item ≥1B — buka backpack dulu cayang")
 	else
 		local preview = table.concat(parts, ", ")
 		if #preview > 70 then preview = preview:sub(1, 67) .. "..." end
-		status(string.format("Cache %d item | Total %s\n%s", #found, formatVal(total), preview))
+		status(string.format("Cache %d item (≥1B) | Total %s\n%s", #found, formatVal(total), preview))
 	end
 end
 
@@ -352,18 +356,20 @@ local function giftTo(uid)
 end
 
 --[[
-  Pilih item:
-  1. Item TERBESAR yang masih muat di remaining (tanpa overshoot)
+  Pilih dari TERKECIL (min 1B):
+  1. Item TERKECIL yang masih muat di remaining
   2. Kalau tidak ada → item TERKECIL yang melebihi remaining
-     (supaya target tetap tercapai, overshoot seminimal mungkin)
+     (biar target tetap tercapai, overshoot seminimal mungkin)
 ]]
 local function pickItem(remaining, items)
-	local bestFit, bestFitIdx = nil, nil       -- terbesar yang <= remaining
+	local bestFit, bestFitIdx = nil, nil       -- terkecil yang <= remaining
 	local smallestOver, smallestOverIdx = nil, nil -- terkecil yang > remaining
 
 	for i, it in ipairs(items) do
-		if it.price <= remaining then
-			if not bestFit or it.price > bestFit.price then
+		if it.price < MIN_ITEM_VALUE then
+			-- skip (seharusnya sudah difilter di scan)
+		elseif it.price <= remaining then
+			if not bestFit or it.price < bestFit.price then
 				bestFit = it
 				bestFitIdx = i
 			end
@@ -376,10 +382,10 @@ local function pickItem(remaining, items)
 	end
 
 	if bestFit then
-		return bestFit, bestFitIdx, false   -- false = tidak overshoot
+		return bestFit, bestFitIdx, false
 	end
 	if smallestOver then
-		return smallestOver, smallestOverIdx, true  -- true = sedikit overshoot
+		return smallestOver, smallestOverIdx, true
 	end
 	return nil, nil, false
 end
@@ -403,7 +409,9 @@ local function runGiftByValue()
 	local gifted, okCount, failCount = 0, 0, 0
 	local pool = {}
 	for _, it in ipairs(cachedItems) do
-		table.insert(pool, it)
+		if it.price >= MIN_ITEM_VALUE then
+			table.insert(pool, it)
+		end
 	end
 
 	while running do
@@ -413,7 +421,7 @@ local function runGiftByValue()
 			break
 		end
 		if #pool == 0 then
-			status(string.format("Item habis\nTotal: %s", formatVal(gifted)))
+			status(string.format("Item ≥1B habis\nTotal: %s", formatVal(gifted)))
 			break
 		end
 
@@ -421,7 +429,7 @@ local function runGiftByValue()
 		local it, idx, isOver = pickItem(remaining, pool)
 
 		if not it then
-			status(string.format("Tidak ada item\nTotal: %s", formatVal(gifted)))
+			status(string.format("Tidak ada item ≥1B\nTotal: %s", formatVal(gifted)))
 			break
 		end
 
@@ -504,4 +512,4 @@ Players.PlayerAdded:Connect(function() task.wait(0.3) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.2) refreshPlayers() end)
 refreshPlayers()
 
-print("Gift by Value - Reach target (minimal overshoot) loaded")
+print("Gift by Value - Smallest first (min 1B) loaded")
