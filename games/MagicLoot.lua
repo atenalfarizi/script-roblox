@@ -11,13 +11,6 @@ local SWITCH_HELD = "背包工具栏切换手持"
 -- Harga internal dalam M (1 = 1M)
 -- Target input dalam B (1 = 1B = 1000M)
 local Prices = {
-	["Ritual Mask"] = 225, ["祭祀面具"] = 225,
-	["Staff Gem"] = 200, ["权杖宝石"] = 200,
-	["Dwarf Emblem"] = 175, ["矮人徽章"] = 175, ["矮人族徽"] = 175,
-	["Firefly"] = 150, ["萤火虫"] = 150,
-	["Eye of Stone"] = 125, ["石之眼"] = 125,
-	["Ginseng"] = 60, ["人参"] = 60,
-	["Queen Blood Sac"] = 55, ["蜘蛛血囊"] = 55, ["女王血囊"] = 55,
 	["Bear Bone"] = 1120,
 	["Ice Magic Crystal"] = 1340,
 	["Bear Paw"] = 1610,
@@ -26,7 +19,7 @@ local Prices = {
 	["Frost Vein"] = 2780,
 }
 
-local MIN_ITEM_VALUE = 1000 -- 1B (internal M)
+local MIN_ITEM_VALUE = 2000 -- 1B (internal M)
 
 local selectedPlayer = nil
 local running = false
