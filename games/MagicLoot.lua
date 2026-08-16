@@ -1,8 +1,9 @@
--- Magic Loot - Gift by Value (smooth bar + total backpack live)
+-- Magic Loot - Gift by Value (OPTIMIZED + soft open backpack saat loading)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local Vim = game:GetService("VirtualInputManager")
 local LP = Players.LocalPlayer
 local PG = LP:WaitForChild("PlayerGui")
 local RE = RS:WaitForChild("Msg"):WaitForChild("RemoteEvent"):WaitForChild("NetWorkRemoteEvent")
@@ -18,17 +19,16 @@ local Prices = {
 	["Frost Vein"] = 2780,
 }
 
-local PriceList = {}
+local PriceLower = {}
 for name, price in pairs(Prices) do
-	table.insert(PriceList, { name = name, low = name:lower(), price = price })
+	PriceLower[name:lower()] = { name = name, price = price }
 end
-table.sort(PriceList, function(a, b) return #a.low > #b.low end)
 
 local MIN_ITEM_VALUE = 2000
 local selectedPlayer = nil
 local running = false
 local cachedItems = {}
-local backpackTotal = 0 -- total value backpack (berkurang saat gift)
+local backpackTotal = 0
 local delayHold = 1.0
 local delayAfterGift = 2.5
 local delayBetween = 2.0
@@ -37,15 +37,15 @@ local animating = false
 local lastGifted = 0
 local scanning = false
 local scriptReady = false
-local lastCount = -1
+local lastScanAt = 0
+local SCAN_COOLDOWN = 0.8
 
 local function formatVal(m)
 	m = tonumber(m) or 0
 	local abs = math.abs(m)
-	if abs >= 1e6 then return string.format("%.2fT", m / 1e6)
-	elseif abs >= 1 then return string.format("%.2fB", m / 1e3)
-	elseif abs > 0 then return string.format("%.3fB", m / 1e3)
-	end
+	if abs >= 1e6 then return string.format("%.2fT", m / 1e6) end
+	if abs >= 1 then return string.format("%.2fB", m / 1e3) end
+	if abs > 0 then return string.format("%.3fB", m / 1e3) end
 	return "0B"
 end
 
@@ -56,7 +56,7 @@ pcall(function()
 	if l then l:Destroy() end
 end)
 
--- LOADING
+-- ===== LOADING =====
 local loadGui = Instance.new("ScreenGui")
 loadGui.Name = "MLGiftLoad"
 loadGui.ResetOnSpawn = false
@@ -101,7 +101,7 @@ local loadSub = Instance.new("TextLabel", loadCard)
 loadSub.Size = UDim2.new(1, -16, 0, 36)
 loadSub.Position = UDim2.new(0, 8, 0, 72)
 loadSub.BackgroundTransparency = 1
-loadSub.Text = "Scan backpack 💕"
+loadSub.Text = "Buka backpack + scan 💕"
 loadSub.TextColor3 = Color3.fromRGB(200, 170, 190)
 loadSub.Font = Enum.Font.Gotham
 loadSub.TextSize = 12
@@ -118,15 +118,25 @@ barFill.Size = UDim2.new(0, 0, 1, 0)
 barFill.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
 Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
 
--- smooth progress bar
-local function setBar(progress, duration)
-	duration = duration or 0.55
-	TweenService:Create(barFill, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
+local function setBar(p, dur)
+	TweenService:Create(barFill, TweenInfo.new(dur or 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = UDim2.new(math.clamp(p, 0, 1), 0, 1, 0)
 	}):Play()
 end
 
--- MAIN GUI
+-- Soft open backpack (1x, tidak spam)
+local function softOpenBackpack()
+	pcall(function()
+		RE:FireServer("打开背包")
+	end)
+	pcall(function()
+		Vim:SendKeyEvent(true, Enum.KeyCode.Backquote, false, game)
+		task.wait(0.03)
+		Vim:SendKeyEvent(false, Enum.KeyCode.Backquote, false, game)
+	end)
+end
+
+-- ===== MAIN GUI =====
 local gui = Instance.new("ScreenGui")
 gui.Name = "MLGiftValue"
 gui.ResetOnSpawn = false
@@ -201,6 +211,7 @@ local valBox = Instance.new("TextBox", content)
 valBox.Size = UDim2.new(1, -12, 0, 26)
 valBox.Position = UDim2.new(0, 6, 0, 100)
 valBox.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+valBox.PlaceholderText = "Target: 1 = 1B"
 valBox.Text = "1"
 valBox.TextColor3 = Color3.fromRGB(235, 240, 255)
 valBox.Font = Enum.Font.GothamBold
@@ -234,7 +245,7 @@ local stopBtn  = createBtn("■  Berhenti", Color3.fromRGB(150, 45, 45), 68)
 local function status(t) st.Text = t end
 
 local normalSize = UDim2.new(0, 240, 0, 270)
-local miniSize   = UDim2.new(0, 240, 0, 24)
+local miniSize = UDim2.new(0, 240, 0, 24)
 
 local function setMinimized(state)
 	if animating then return end
@@ -244,14 +255,14 @@ local function setMinimized(state)
 		minBtn.Text = "+"
 		title.Text = "  Semangat Cayangku ♡"
 		content.Visible = false
-		local tw = TweenService:Create(f, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = miniSize })
+		local tw = TweenService:Create(f, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = miniSize })
 		tw:Play()
 		tw.Completed:Wait()
 	else
 		minBtn.Text = "−"
 		title.Text = "  Gift Magic Loot"
 		content.Visible = true
-		local tw = TweenService:Create(f, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = normalSize })
+		local tw = TweenService:Create(f, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = normalSize })
 		tw:Play()
 		tw.Completed:Wait()
 	end
@@ -259,7 +270,7 @@ local function setMinimized(state)
 end
 
 minBtn.MouseButton1Click:Connect(function()
-	setMinimized(not minimized)
+	task.spawn(setMinimized, not minimized)
 end)
 
 local dragging, dragStart, startPos = false, nil, nil
@@ -271,7 +282,8 @@ title.InputBegan:Connect(function(input)
 	end
 end)
 UIS.InputChanged:Connect(function(input)
-	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+	if not dragging then return end
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 		local d = input.Position - dragStart
 		f.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
@@ -312,76 +324,75 @@ local function refreshPlayers()
 end
 
 local function matchPrice(text)
-	if not text or text == "" then return nil, 0 end
-	local clean = text:gsub("%s+", " "):match("^%s*(.-)%s*$") or text
+	if type(text) ~= "string" or text == "" then return nil, 0 end
+	local clean = text:match("^%s*(.-)%s*$") or text
 	if Prices[clean] then return clean, Prices[clean] end
+	local hit = PriceLower[clean:lower()]
+	if hit then return hit.name, hit.price end
 	local low = clean:lower()
-	for _, e in ipairs(PriceList) do
-		if low == e.low then return e.name, e.price end
-	end
-	for _, e in ipairs(PriceList) do
-		if #e.low >= 4 and low:find(e.low, 1, true) then return e.name, e.price end
+	for k, v in pairs(PriceLower) do
+		if #k >= 4 and low:find(k, 1, true) then
+			return v.name, v.price
+		end
 	end
 	return nil, 0
 end
 
-local function recalcTotal()
-	local total = 0
-	for _, it in ipairs(cachedItems) do total += it.price end
-	backpackTotal = total
-	return total
-end
-
-local function doScan()
+local function doScan(force)
+	local now = os.clock()
 	if scanning then return #cachedItems > 0 end
-	scanning = true
-	local found, seen = {}, {}
-	local function consider(oid, name, price)
-		if not oid or not name or not price or price < MIN_ITEM_VALUE then return end
-		local key = tostring(oid)
-		if seen[key] then return end
-		seen[key] = true
-		table.insert(found, { onlyID = tonumber(oid) or oid, name = name, price = price })
+	if not force and (now - lastScanAt) < SCAN_COOLDOWN then
+		return #cachedItems > 0
 	end
+	scanning = true
+	lastScanAt = now
+
+	local found, seen = {}, {}
+	local total = 0
+
 	for _, obj in ipairs(PG:GetDescendants()) do
-		local oid = obj:GetAttribute("OnlyID") or obj:GetAttribute("onlyID") or obj:GetAttribute("OnlyId")
-		if oid and not seen[tostring(oid)] then
-			for _, attr in ipairs({"ItemName", "Name", "ZhName", "ShowName", "itemName", "showName"}) do
-				local a = obj:GetAttribute(attr)
-				if type(a) == "string" then
-					local n, pr = matchPrice(a)
-					if n then consider(oid, n, pr) break end
-				end
-			end
-			if not seen[tostring(oid)] then
-				local function checkText(t)
-					if type(t) == "string" then
-						local n, pr = matchPrice(t)
-						if n then consider(oid, n, pr) end
+		local oid = obj:GetAttribute("OnlyID") or obj:GetAttribute("onlyID")
+		if oid then
+			local key = tostring(oid)
+			if not seen[key] then
+				local name, price = nil, 0
+				for _, attr in ipairs({"ItemName", "ZhName", "ShowName", "Name"}) do
+					local a = obj:GetAttribute(attr)
+					if type(a) == "string" then
+						name, price = matchPrice(a)
+						if name then break end
 					end
 				end
-				if obj:IsA("TextLabel") or obj:IsA("TextButton") then checkText(obj.Text) end
-				for _, ch in ipairs(obj:GetChildren()) do
-					if seen[tostring(oid)] then break end
-					if ch:IsA("TextLabel") or ch:IsA("TextButton") then checkText(ch.Text) end
-					for _, ch2 in ipairs(ch:GetChildren()) do
-						if seen[tostring(oid)] then break end
-						if ch2:IsA("TextLabel") or ch2:IsA("TextButton") then checkText(ch2.Text) end
+				if not name and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+					name, price = matchPrice(obj.Text)
+				end
+				-- cek 1 level anak text
+				if not name then
+					for _, ch in ipairs(obj:GetChildren()) do
+						if ch:IsA("TextLabel") or ch:IsA("TextButton") then
+							name, price = matchPrice(ch.Text)
+							if name then break end
+						end
 					end
+				end
+				if name and price >= MIN_ITEM_VALUE then
+					seen[key] = true
+					total += price
+					found[#found + 1] = { onlyID = tonumber(oid) or oid, name = name, price = price }
 				end
 			end
 		end
 	end
+
 	table.sort(found, function(a, b) return a.price < b.price end)
 	cachedItems = found
-	recalcTotal()
+	backpackTotal = total
 	scanning = false
 	return #found > 0
 end
 
 local function showScanResult()
 	if #cachedItems == 0 then
-		backpackTotal = 0
 		status("0 item ≥" .. formatVal(MIN_ITEM_VALUE) .. "\nBuka backpack dulu")
 	else
 		status(string.format("%d Item | Total %s", #cachedItems, formatVal(backpackTotal)))
@@ -401,10 +412,9 @@ end
 local function manualCheckValue()
 	if scanning then status("Sedang scan...") return end
 	status("Cek backpack...")
-	task.wait(0.2)
-	doScan()
-	task.wait(0.15)
-	doScan()
+	softOpenBackpack()
+	task.wait(0.35)
+	doScan(true)
 	showScanResult()
 end
 
@@ -430,13 +440,14 @@ local function giftTo(uid)
 end
 
 local function pickItem(remaining, items)
-	local bestFit, bestFitIdx = nil, nil
-	local smallestOver, smallestOverIdx = nil, nil
+	local bestFit, bestFitIdx, smallestOver, smallestOverIdx
 	for i, it in ipairs(items) do
 		if it.price <= remaining then
-			if not bestFit or it.price < bestFit.price then bestFit, bestFitIdx = it, i end
-		else
-			if not smallestOver or it.price < smallestOver.price then smallestOver, smallestOverIdx = it, i end
+			if not bestFit or it.price < bestFit.price then
+				bestFit, bestFitIdx = it, i
+			end
+		elseif not smallestOver or it.price < smallestOver.price then
+			smallestOver, smallestOverIdx = it, i
 		end
 	end
 	if bestFit then return bestFit, bestFitIdx end
@@ -452,9 +463,9 @@ local function runGiftByValue()
 	local target = targetB * 1000
 
 	if #cachedItems == 0 then
-		doScan()
-		task.wait(0.1)
-		doScan()
+		softOpenBackpack()
+		task.wait(0.35)
+		doScan(true)
 	end
 	if #cachedItems == 0 then status("0 item — buka backpack") return end
 
@@ -470,6 +481,7 @@ local function runGiftByValue()
 	while running do
 		if gifted >= target or #pool == 0 then break end
 		if not selectedPlayer.Parent then break end
+
 		local it, idx = pickItem(target - gifted, pool)
 		if not it then break end
 
@@ -490,13 +502,12 @@ local function runGiftByValue()
 
 		giftTo(uid)
 		task.wait(delayAfterGift)
+
 		if not isHeld(it.onlyID) then
 			gifted += it.price
 			lastGifted = gifted
 			okCount += 1
 			table.remove(pool, idx)
-
-			-- kurangi dari cachedItems + backpackTotal
 			for j = #cachedItems, 1, -1 do
 				if tostring(cachedItems[j].onlyID) == tostring(it.onlyID) then
 					table.remove(cachedItems, j)
@@ -504,7 +515,6 @@ local function runGiftByValue()
 				end
 			end
 			backpackTotal = math.max(0, backpackTotal - it.price)
-
 			status(string.format("OK +%s\nGift %s | Bag %s", formatVal(it.price), formatVal(gifted), formatVal(backpackTotal)))
 		else
 			failCount += 1
@@ -530,18 +540,17 @@ stopBtn.MouseButton1Click:Connect(function()
 	status(string.format("Stopped\nGift %s | Bag %s", formatVal(lastGifted), formatVal(backpackTotal)))
 end)
 
+local pendingScan = false
 PG.DescendantAdded:Connect(function(obj)
-	if running or scanning then return end
-	local oid = obj:GetAttribute("OnlyID") or obj:GetAttribute("onlyID") or obj:GetAttribute("OnlyId")
-	if not oid then return end
-	task.defer(function()
-		task.wait(0.25)
+	if not scriptReady or running or scanning or pendingScan then return end
+	if not (obj:GetAttribute("OnlyID") or obj:GetAttribute("onlyID")) then return end
+	pendingScan = true
+	task.delay(0.4, function()
+		pendingScan = false
 		if running or scanning then return end
-		doScan()
-		if scriptReady and #cachedItems ~= lastCount then
-			lastCount = #cachedItems
-			showScanResult()
-		end
+		local before = #cachedItems
+		doScan(false)
+		if #cachedItems ~= before then showScanResult() end
 	end)
 end)
 
@@ -549,47 +558,56 @@ Players.PlayerAdded:Connect(function() task.wait(0.2) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.15) refreshPlayers() end)
 refreshPlayers()
 
--- LOADING + SMOOTH BAR
+-- LOADING: soft open → tunggu → scan → retry 1x
 task.spawn(function()
-	local steps = {
-		{ t = "Tunggu ya cayang...", s = "Persiapan 💕", p = 0.22 },
-		{ t = "Scan backpack...", s = "Cari item...", p = 0.48 },
-		{ t = "Scan lagi...", s = "Biar akurat 💕", p = 0.72 },
-		{ t = "Hampir selesai...", s = "Sebentar lagi ✨", p = 0.90 },
-	}
+	setBar(0.15, 0.35)
+	loadTitle.Text = "Tunggu ya cayang..."
+	loadSub.Text = "Buka backpack 💕"
+	softOpenBackpack()
+	task.wait(0.55)
 
-	for i, step in ipairs(steps) do
-		loadTitle.Text = step.t
-		loadSub.Text = step.s
-		setBar(step.p, 0.65) -- tween smooth
+	setBar(0.45, 0.45)
+	loadTitle.Text = "Scan backpack..."
+	loadSub.Text = "Cari item..."
+	doScan(true)
+	if #cachedItems > 0 then
+		loadSub.Text = string.format("Ketemu %d item | %s 💕", #cachedItems, formatVal(backpackTotal))
+	end
+	task.wait(0.5)
 
-		if i == 2 or i == 3 then
-			doScan()
-			if #cachedItems > 0 then
-				loadSub.Text = string.format("Ketemu %d item | %s 💕", #cachedItems, formatVal(backpackTotal))
-			end
+	-- kalau masih 0, buka lagi 1x + scan
+	if #cachedItems == 0 then
+		setBar(0.65, 0.4)
+		loadTitle.Text = "Coba lagi..."
+		loadSub.Text = "Buka backpack ulang 💕"
+		softOpenBackpack()
+		task.wait(0.55)
+		doScan(true)
+		if #cachedItems > 0 then
+			loadSub.Text = string.format("Ketemu %d item | %s 💕", #cachedItems, formatVal(backpackTotal))
 		end
-		task.wait(0.8)
+		task.wait(0.4)
 	end
 
-	doScan()
-	setBar(1, 0.45)
+	setBar(0.9, 0.35)
+	loadTitle.Text = "Hampir selesai..."
+	loadSub.Text = "Sebentar lagi ✨"
+	task.wait(0.45)
 
+	setBar(1, 0.3)
 	if #cachedItems > 0 then
 		loadTitle.Text = "Semangat Jualannya Cayang ♡"
 		loadSub.Text = string.format("%d item | %s", #cachedItems, formatVal(backpackTotal))
-		lastCount = #cachedItems
 	else
 		loadTitle.Text = "Semangat Jualannya Cayang ♡"
-		loadSub.Text = "Buka backpack ya 💕"
+		loadSub.Text = "Buka backpack manual ya 💕"
 	end
-
-	task.wait(0.85)
+	task.wait(0.65)
 	closeLoading()
 end)
 
-task.delay(7, function()
+task.delay(6, function()
 	if loadGui and loadGui.Parent then closeLoading() end
 end)
 
-print("Gift smooth bar + live backpack total loaded")
+print("Gift soft-open loading loaded")
