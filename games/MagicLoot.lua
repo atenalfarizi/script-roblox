@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (OPTIMIZED + soft open backpack saat loading)
+-- Magic Loot - Gift by Value (COOLDOWN FIX)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -29,16 +29,21 @@ local selectedPlayer = nil
 local running = false
 local cachedItems = {}
 local backpackTotal = 0
-local delayHold = 1.0
-local delayAfterGift = 2.5
-local delayBetween = 2.0
+
+-- ===== DELAY =====
+local delayHold = 0.75
+local delayAfterGift = 1.75
+local delayBetween = 1.0
+local holdRetryWait = 0.5
+local successCooldown = 1.6   -- << ini yang penting (setelah berhasil)
+
 local minimized = false
 local animating = false
 local lastGifted = 0
 local scanning = false
 local scriptReady = false
 local lastScanAt = 0
-local SCAN_COOLDOWN = 0.8
+local SCAN_COOLDOWN = 0.6
 
 local function formatVal(m)
 	m = tonumber(m) or 0
@@ -74,6 +79,7 @@ loadCard.AnchorPoint = Vector2.new(0.5, 0.5)
 loadCard.Position = UDim2.new(0.5, 0, 0.5, 0)
 loadCard.BackgroundColor3 = Color3.fromRGB(28, 22, 36)
 Instance.new("UICorner", loadCard).CornerRadius = UDim.new(0, 12)
+
 local lcs = Instance.new("UIStroke", loadCard)
 lcs.Color = Color3.fromRGB(255, 120, 160)
 lcs.Transparency = 0.5
@@ -119,12 +125,11 @@ barFill.BackgroundColor3 = Color3.fromRGB(255, 120, 160)
 Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
 
 local function setBar(p, dur)
-	TweenService:Create(barFill, TweenInfo.new(dur or 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+	TweenService:Create(barFill, TweenInfo.new(dur or 0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Size = UDim2.new(math.clamp(p, 0, 1), 0, 1, 0)
 	}):Play()
 end
 
--- Soft open backpack (1x, tidak spam)
 local function softOpenBackpack()
 	pcall(function()
 		RE:FireServer("打开背包")
@@ -153,6 +158,7 @@ f.BackgroundTransparency = 0.15
 f.ClipsDescendants = true
 f.Active = true
 Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+
 local fStroke = Instance.new("UIStroke", f)
 fStroke.Color = Color3.fromRGB(120, 140, 180)
 fStroke.Transparency = 0.55
@@ -162,7 +168,7 @@ local title = Instance.new("TextLabel", f)
 title.Size = UDim2.new(1, -28, 0, 24)
 title.BackgroundColor3 = Color3.fromRGB(28, 32, 45)
 title.BackgroundTransparency = 0.25
-title.Text = "  Gift Magic Loot"
+title.Text = " Gift Magic Loot"
 title.TextColor3 = Color3.fromRGB(230, 235, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
@@ -238,14 +244,14 @@ local function createBtn(text, color, y)
 	return b
 end
 
-local startBtn = createBtn("▶   Mulai Gift", Color3.fromRGB(0, 140, 60), 0)
-local scanBtn  = createBtn("🔍  Cek Backpack", Color3.fromRGB(55, 85, 140), 34)
-local stopBtn  = createBtn("■  Berhenti", Color3.fromRGB(150, 45, 45), 68)
+local startBtn = createBtn("▶ Mulai Gift", Color3.fromRGB(0, 140, 60), 0)
+local scanBtn  = createBtn("🔍 Cek Backpack", Color3.fromRGB(55, 85, 140), 34)
+local stopBtn  = createBtn("■ Berhenti", Color3.fromRGB(150, 45, 45), 68)
 
 local function status(t) st.Text = t end
 
 local normalSize = UDim2.new(0, 240, 0, 270)
-local miniSize = UDim2.new(0, 240, 0, 24)
+local miniSize   = UDim2.new(0, 240, 0, 24)
 
 local function setMinimized(state)
 	if animating then return end
@@ -253,16 +259,16 @@ local function setMinimized(state)
 	minimized = state
 	if minimized then
 		minBtn.Text = "+"
-		title.Text = "  Semangat Cayangku ♡"
+		title.Text = " Semangat Cayangku ♡"
 		content.Visible = false
-		local tw = TweenService:Create(f, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = miniSize })
+		local tw = TweenService:Create(f, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = miniSize })
 		tw:Play()
 		tw.Completed:Wait()
 	else
 		minBtn.Text = "−"
-		title.Text = "  Gift Magic Loot"
+		title.Text = " Gift Magic Loot"
 		content.Visible = true
-		local tw = TweenService:Create(f, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = normalSize })
+		local tw = TweenService:Create(f, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = normalSize })
 		tw:Play()
 		tw.Completed:Wait()
 	end
@@ -281,6 +287,7 @@ title.InputBegan:Connect(function(input)
 		startPos = f.Position
 	end
 end)
+
 UIS.InputChanged:Connect(function(input)
 	if not dragging then return end
 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
@@ -288,6 +295,7 @@ UIS.InputChanged:Connect(function(input)
 		f.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
+
 UIS.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = false
@@ -346,10 +354,8 @@ local function doScan(force)
 	end
 	scanning = true
 	lastScanAt = now
-
 	local found, seen = {}, {}
 	local total = 0
-
 	for _, obj in ipairs(PG:GetDescendants()) do
 		local oid = obj:GetAttribute("OnlyID") or obj:GetAttribute("onlyID")
 		if oid then
@@ -366,7 +372,6 @@ local function doScan(force)
 				if not name and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
 					name, price = matchPrice(obj.Text)
 				end
-				-- cek 1 level anak text
 				if not name then
 					for _, ch in ipairs(obj:GetChildren()) do
 						if ch:IsA("TextLabel") or ch:IsA("TextButton") then
@@ -383,7 +388,6 @@ local function doScan(force)
 			end
 		end
 	end
-
 	table.sort(found, function(a, b) return a.price < b.price end)
 	cachedItems = found
 	backpackTotal = total
@@ -413,7 +417,7 @@ local function manualCheckValue()
 	if scanning then status("Sedang scan...") return end
 	status("Cek backpack...")
 	softOpenBackpack()
-	task.wait(0.35)
+	task.wait(0.3)
 	doScan(true)
 	showScanResult()
 end
@@ -432,11 +436,27 @@ local function isHeld(oid)
 end
 
 local function holdByOnlyID(oid)
-	pcall(function() RE:FireServer(SWITCH_HELD, { onlyID = oid }) end)
+	pcall(function()
+		RE:FireServer(SWITCH_HELD, { onlyID = oid })
+	end)
 end
 
 local function giftTo(uid)
-	pcall(function() RE:FireServer(GIFT, uid) end)
+	pcall(function()
+		RE:FireServer(GIFT, uid)
+	end)
+end
+
+local function ensureHeld(oid)
+	for attempt = 1, 3 do
+		holdByOnlyID(oid)
+		task.wait(delayHold)
+		if isHeld(oid) then
+			return true
+		end
+		task.wait(holdRetryWait)
+	end
+	return false
 end
 
 local function pickItem(remaining, items)
@@ -464,14 +484,14 @@ local function runGiftByValue()
 
 	if #cachedItems == 0 then
 		softOpenBackpack()
-		task.wait(0.35)
+		task.wait(0.3)
 		doScan(true)
 	end
 	if #cachedItems == 0 then status("0 item — buka backpack") return end
 
 	running = true
 	lastGifted = 0
-	startBtn.Text = "⏳  Gifting..."
+	startBtn.Text = "⏳ Gifting..."
 	startBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 40)
 
 	local uid = selectedPlayer.UserId
@@ -486,16 +506,13 @@ local function runGiftByValue()
 		if not it then break end
 
 		status(string.format("Hold %s (%s)\nGift %s | Bag %s", it.name, formatVal(it.price), formatVal(gifted), formatVal(backpackTotal)))
-		holdByOnlyID(it.onlyID)
-		task.wait(delayHold)
-		if not isHeld(it.onlyID) then
-			holdByOnlyID(it.onlyID)
-			task.wait(delayHold)
-		end
-		if not isHeld(it.onlyID) then
+
+		local heldOk = ensureHeld(it.onlyID)
+		if not heldOk then
 			failCount += 1
+			status(string.format("Gagal hold %s\nfail %d", it.name, failCount))
 			table.remove(pool, idx)
-			if failCount >= 6 then break end
+			if failCount >= 8 then break end
 			task.wait(delayBetween)
 			continue
 		end
@@ -504,10 +521,12 @@ local function runGiftByValue()
 		task.wait(delayAfterGift)
 
 		if not isHeld(it.onlyID) then
+			-- ===== BERHASIL =====
 			gifted += it.price
 			lastGifted = gifted
 			okCount += 1
 			table.remove(pool, idx)
+
 			for j = #cachedItems, 1, -1 do
 				if tostring(cachedItems[j].onlyID) == tostring(it.onlyID) then
 					table.remove(cachedItems, j)
@@ -516,16 +535,22 @@ local function runGiftByValue()
 			end
 			backpackTotal = math.max(0, backpackTotal - it.price)
 			status(string.format("OK +%s\nGift %s | Bag %s", formatVal(it.price), formatVal(gifted), formatVal(backpackTotal)))
+
+			-- Cooldown setelah sukses (ini yang bikin pola sukses-gagal hilang)
+			task.wait(successCooldown)
 		else
+			-- ===== GAGAL =====
 			failCount += 1
-			task.wait(2.5)
-			if failCount >= 6 then break end
+			status(string.format("GIFT FAILED %s\nfail %d", it.name, failCount))
+			task.wait(1.6)
+			if failCount >= 8 then break end
 		end
+
 		task.wait(delayBetween)
 	end
 
 	running = false
-	startBtn.Text = "▶   Mulai Gift"
+	startBtn.Text = "▶ Mulai Gift"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
 	status(string.format("Selesai | Gift %s\nSisa bag: %s | OK %d FAIL %d",
 		formatVal(gifted), formatVal(backpackTotal), okCount, failCount))
@@ -535,7 +560,7 @@ startBtn.MouseButton1Click:Connect(function() task.spawn(runGiftByValue) end)
 scanBtn.MouseButton1Click:Connect(function() task.spawn(manualCheckValue) end)
 stopBtn.MouseButton1Click:Connect(function()
 	running = false
-	startBtn.Text = "▶   Mulai Gift"
+	startBtn.Text = "▶ Mulai Gift"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
 	status(string.format("Stopped\nGift %s | Bag %s", formatVal(lastGifted), formatVal(backpackTotal)))
 end)
@@ -545,7 +570,7 @@ PG.DescendantAdded:Connect(function(obj)
 	if not scriptReady or running or scanning or pendingScan then return end
 	if not (obj:GetAttribute("OnlyID") or obj:GetAttribute("onlyID")) then return end
 	pendingScan = true
-	task.delay(0.4, function()
+	task.delay(0.35, function()
 		pendingScan = false
 		if running or scanning then return end
 		local before = #cachedItems
@@ -558,43 +583,35 @@ Players.PlayerAdded:Connect(function() task.wait(0.2) refreshPlayers() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.15) refreshPlayers() end)
 refreshPlayers()
 
--- LOADING: soft open → tunggu → scan → retry 1x
 task.spawn(function()
-	setBar(0.15, 0.35)
+	setBar(0.2, 0.25)
 	loadTitle.Text = "Tunggu ya cayang..."
 	loadSub.Text = "Buka backpack 💕"
 	softOpenBackpack()
-	task.wait(0.55)
-
-	setBar(0.45, 0.45)
+	task.wait(0.4)
+	setBar(0.55, 0.3)
 	loadTitle.Text = "Scan backpack..."
 	loadSub.Text = "Cari item..."
 	doScan(true)
 	if #cachedItems > 0 then
 		loadSub.Text = string.format("Ketemu %d item | %s 💕", #cachedItems, formatVal(backpackTotal))
 	end
-	task.wait(0.5)
+	task.wait(0.35)
 
-	-- kalau masih 0, buka lagi 1x + scan
 	if #cachedItems == 0 then
-		setBar(0.65, 0.4)
+		setBar(0.75, 0.25)
 		loadTitle.Text = "Coba lagi..."
 		loadSub.Text = "Buka backpack ulang 💕"
 		softOpenBackpack()
-		task.wait(0.55)
+		task.wait(0.4)
 		doScan(true)
 		if #cachedItems > 0 then
 			loadSub.Text = string.format("Ketemu %d item | %s 💕", #cachedItems, formatVal(backpackTotal))
 		end
-		task.wait(0.4)
+		task.wait(0.3)
 	end
 
-	setBar(0.9, 0.35)
-	loadTitle.Text = "Hampir selesai..."
-	loadSub.Text = "Sebentar lagi ✨"
-	task.wait(0.45)
-
-	setBar(1, 0.3)
+	setBar(1, 0.25)
 	if #cachedItems > 0 then
 		loadTitle.Text = "Semangat Jualannya Cayang ♡"
 		loadSub.Text = string.format("%d item | %s", #cachedItems, formatVal(backpackTotal))
@@ -602,12 +619,12 @@ task.spawn(function()
 		loadTitle.Text = "Semangat Jualannya Cayang ♡"
 		loadSub.Text = "Buka backpack manual ya 💕"
 	end
-	task.wait(0.65)
+	task.wait(0.45)
 	closeLoading()
 end)
 
-task.delay(6, function()
+task.delay(5, function()
 	if loadGui and loadGui.Parent then closeLoading() end
 end)
 
-print("Gift soft-open loading loaded")
+print("Gift COOLDOWN FIX loaded")
