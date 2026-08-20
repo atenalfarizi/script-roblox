@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (COOLDOWN + RESUME + PROGRESS + DISCORD 1 PESAN/AKUN)
+-- Magic Loot - Gift by Value (FULL + Discord 1 pesan/akun)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -11,9 +11,9 @@ local RE = RS:WaitForChild("Msg"):WaitForChild("RemoteEvent"):WaitForChild("NetW
 local GIFT = "赠送请求"
 local SWITCH_HELD = "背包工具栏切换手持"
 
--- ========== GANTI DENGAN WEBHOOK DISCORD KAMU ==========
-local WEBHOOK_URL = "https://discord.com/api/webhooks/ISI_WEBHOOK_KAMU_DI_SINI"
--- =====================================================
+-- ========== WEBHOOK DISCORD ==========
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1540078528911900783/aEt2AN6EId7RSjsxu-xX87_E0jQFsgA4PrvenV8Yfw_QJyVWFNpdcy5-orGa2KDibc4Y"
+-- ====================================
 
 local Prices = {
 	["Bear Bone"] = 1120,
@@ -58,39 +58,6 @@ local SCAN_COOLDOWN = 0.6
 local lastCheckClick = 0
 local DOUBLE_TAP_WINDOW = 3.0
 
--- Simpan message_id per akun (persistent selama server hidup)
-local function getStore()
-	local folder = workspace:FindFirstChild("MLGiftDiscordStore")
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = "MLGiftDiscordStore"
-		folder.Parent = workspace
-	end
-	return folder
-end
-
-local function getMessageId()
-	local store = getStore()
-	local key = "msg_" .. LP.Name
-	local val = store:FindFirstChild(key)
-	if val and val:IsA("StringValue") then
-		return val.Value
-	end
-	return nil
-end
-
-local function setMessageId(id)
-	local store = getStore()
-	local key = "msg_" .. LP.Name
-	local val = store:FindFirstChild(key)
-	if not val then
-		val = Instance.new("StringValue")
-		val.Name = key
-		val.Parent = store
-	end
-	val.Value = tostring(id)
-end
-
 local function formatVal(m)
 	m = tonumber(m) or 0
 	local abs = math.abs(m)
@@ -98,6 +65,103 @@ local function formatVal(m)
 	if abs >= 1 then return string.format("%.2fB", m / 1e3) end
 	if abs > 0 then return string.format("%.3fB", m / 1e3) end
 	return "0B"
+end
+
+-- ===== DISCORD STORE (file + workspace) =====
+local STORE_FILE = "MLGift_DiscordMsgIds.json"
+
+local function loadMsgIds()
+	local data = {}
+	if isfile and isfile(STORE_FILE) then
+		local ok, content = pcall(function()
+			return readfile(STORE_FILE)
+		end)
+		if ok and content and content ~= "" then
+			local ok2, decoded = pcall(function()
+				return HttpService:JSONDecode(content)
+			end)
+			if ok2 and type(decoded) == "table" then
+				data = decoded
+			end
+		end
+	end
+	local folder = workspace:FindFirstChild("MLGiftDiscordStore")
+	if folder then
+		for _, v in ipairs(folder:GetChildren()) do
+			if v:IsA("StringValue") and v.Name:sub(1, 4) == "msg_" then
+				local name = v.Name:sub(5)
+				if not data[name] then
+					data[name] = v.Value
+				end
+			end
+		end
+	end
+	return data
+end
+
+local function saveMsgIds(data)
+	if writefile then
+		pcall(function()
+			writefile(STORE_FILE, HttpService:JSONEncode(data))
+		end)
+	end
+	local folder = workspace:FindFirstChild("MLGiftDiscordStore")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "MLGiftDiscordStore"
+		folder.Parent = workspace
+	end
+	for name, id in pairs(data) do
+		local key = "msg_" .. name
+		local val = folder:FindFirstChild(key)
+		if not val then
+			val = Instance.new("StringValue")
+			val.Name = key
+			val.Parent = folder
+		end
+		val.Value = tostring(id)
+	end
+end
+
+local function getMessageId()
+	local data = loadMsgIds()
+	return data[LP.Name]
+end
+
+local function setMessageId(id)
+	local data = loadMsgIds()
+	data[LP.Name] = tostring(id)
+	saveMsgIds(data)
+end
+
+local function clearMessageId()
+	local data = loadMsgIds()
+	data[LP.Name] = nil
+	saveMsgIds(data)
+end
+
+-- ===== HTTP REQUEST (multi executor) =====
+local function httpRequest(opts)
+	if syn and syn.request then
+		return syn.request(opts)
+	elseif http_request then
+		return http_request(opts)
+	elseif request then
+		return request(opts)
+	elseif http and http.request then
+		return http.request(opts)
+	else
+		local ok, res = pcall(function()
+			return HttpService:RequestAsync({
+				Url = opts.Url,
+				Method = opts.Method or "POST",
+				Headers = opts.Headers or {},
+				Body = opts.Body
+			})
+		end)
+		if ok then return res end
+		return nil
+	end
 end
 
 pcall(function()
@@ -456,7 +520,7 @@ local function showScanResult()
 	end
 end
 
--- ===== KIRIM / EDIT DISCORD (1 pesan per akun) =====
+-- ===== KIRIM / EDIT DISCORD =====
 local function sendToDiscord()
 	if not WEBHOOK_URL or WEBHOOK_URL == "" or WEBHOOK_URL:find("ISI_WEBHOOK") then
 		status("Webhook belum diisi!")
@@ -478,57 +542,61 @@ local function sendToDiscord()
 		footer = { text = "Magic Loot • " .. LP.Name }
 	}
 
-	local payload = {
+	local payload = HttpService:JSONEncode({
 		username = "Magic Loot",
 		embeds = { embed }
-	}
+	})
 
+	local headers = { ["Content-Type"] = "application/json" }
 	local msgId = getMessageId()
 	local success = false
 
+	-- 1. Coba EDIT pesan lama
 	if msgId and msgId ~= "" then
-		-- Coba EDIT pesan lama
 		local editUrl = WEBHOOK_URL .. "/messages/" .. msgId
-		local ok, res = pcall(function()
-			return HttpService:RequestAsync({
-				Url = editUrl,
-				Method = "PATCH",
-				Headers = { ["Content-Type"] = "application/json" },
-				Body = HttpService:JSONEncode(payload)
-			})
-		end)
-		if ok and res and res.Success then
+		local res = httpRequest({
+			Url = editUrl,
+			Method = "PATCH",
+			Headers = headers,
+			Body = payload
+		})
+		local code = res and (res.StatusCode or res.Status or res.status_code)
+		if res and (res.Success or code == 200) then
 			success = true
 		else
-			-- Pesan lama sudah dihapus / invalid → buat baru
+			clearMessageId()
 			msgId = nil
 		end
 	end
 
+	-- 2. Buat pesan baru kalau belum ada / gagal edit
 	if not success then
-		-- Buat pesan baru + ambil message_id
 		local postUrl = WEBHOOK_URL .. "?wait=true"
-		local ok, res = pcall(function()
-			return HttpService:RequestAsync({
-				Url = postUrl,
-				Method = "POST",
-				Headers = { ["Content-Type"] = "application/json" },
-				Body = HttpService:JSONEncode(payload)
-			})
-		end)
-		if ok and res and res.Success then
-			local body = HttpService:JSONDecode(res.Body)
-			if body and body.id then
-				setMessageId(body.id)
-				success = true
+		local res = httpRequest({
+			Url = postUrl,
+			Method = "POST",
+			Headers = headers,
+			Body = payload
+		})
+		local code = res and (res.StatusCode or res.Status or res.status_code)
+		if res and (res.Success or code == 200) then
+			local bodyStr = res.Body or res.body
+			if bodyStr and bodyStr ~= "" then
+				local ok, body = pcall(function()
+					return HttpService:JSONDecode(bodyStr)
+				end)
+				if ok and body and body.id then
+					setMessageId(body.id)
+				end
 			end
+			success = true
 		end
 	end
 
 	if success then
 		status(string.format("%d Item | %s\n✓ Update Discord", itemCount, totalStr))
 	else
-		status("Gagal kirim Discord\nCek webhook / HttpService")
+		status("Gagal kirim Discord\nCek executor / webhook")
 	end
 end
 
@@ -785,4 +853,4 @@ task.delay(5, function()
 	if loadGui and loadGui.Parent then closeLoading() end
 end)
 
-print("Gift + Discord 1 pesan/akun loaded")
+print("Gift FULL + Discord 1 pesan/akun loaded")
