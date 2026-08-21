@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (FULL + Discord 1 pesan/akun)
+-- Magic Loot - Gift by Value (FULL + Auto Discord setelah gift)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -54,9 +54,13 @@ local scriptReady = false
 local lastScanAt = 0
 local SCAN_COOLDOWN = 0.6
 
--- Double tap Discord
+-- Double tap + Discord safety
 local lastCheckClick = 0
 local DOUBLE_TAP_WINDOW = 3.0
+local sendingDiscord = false
+local lastDiscordSend = 0
+local DISCORD_COOLDOWN = 8.0
+local lastAutoDiscordTotal = -1   -- validasi: jangan kirim data sama berulang
 
 local function formatVal(m)
 	m = tonumber(m) or 0
@@ -129,6 +133,7 @@ local function getMessageId()
 end
 
 local function setMessageId(id)
+	if not id or id == "" then return end
 	local data = loadMsgIds()
 	data[LP.Name] = tostring(id)
 	saveMsgIds(data)
@@ -520,12 +525,40 @@ local function showScanResult()
 	end
 end
 
--- ===== KIRIM / EDIT DISCORD =====
-local function sendToDiscord()
-	if not WEBHOOK_URL or WEBHOOK_URL == "" or WEBHOOK_URL:find("ISI_WEBHOOK") then
-		status("Webhook belum diisi!")
-		return
+-- ===== KIRIM / EDIT DISCORD (dengan validasi) =====
+local function sendToDiscord(opts)
+	opts = opts or {}
+	local isAuto = opts.auto == true
+	local force = opts.force == true
+
+	-- Validasi 1: sedang kirim
+	if sendingDiscord then
+		if not isAuto then status("Sedang kirim Discord...") end
+		return false
 	end
+
+	-- Validasi 2: cooldown
+	if not force and (os.clock() - lastDiscordSend) < DISCORD_COOLDOWN then
+		if not isAuto then
+			status(string.format("Tunggu %ds lagi\nbaru bisa kirim Discord",
+				math.ceil(DISCORD_COOLDOWN - (os.clock() - lastDiscordSend))))
+		end
+		return false
+	end
+
+	-- Validasi 3: webhook
+	if not WEBHOOK_URL or WEBHOOK_URL == "" or WEBHOOK_URL:find("ISI_WEBHOOK") then
+		if not isAuto then status("Webhook belum diisi!") end
+		return false
+	end
+
+	-- Validasi 4: data tidak berubah (khusus auto, hemat request)
+	if isAuto and not force and lastAutoDiscordTotal == backpackTotal then
+		return false
+	end
+
+	sendingDiscord = true
+	lastDiscordSend = os.clock()
 
 	local itemCount = #cachedItems
 	local totalStr = formatVal(backpackTotal)
@@ -551,11 +584,10 @@ local function sendToDiscord()
 	local msgId = getMessageId()
 	local success = false
 
-	-- 1. Coba EDIT pesan lama
+	-- 1. Coba EDIT
 	if msgId and msgId ~= "" then
-		local editUrl = WEBHOOK_URL .. "/messages/" .. msgId
 		local res = httpRequest({
-			Url = editUrl,
+			Url = WEBHOOK_URL .. "/messages/" .. msgId,
 			Method = "PATCH",
 			Headers = headers,
 			Body = payload
@@ -569,11 +601,10 @@ local function sendToDiscord()
 		end
 	end
 
-	-- 2. Buat pesan baru kalau belum ada / gagal edit
+	-- 2. Buat baru kalau perlu
 	if not success then
-		local postUrl = WEBHOOK_URL .. "?wait=true"
 		local res = httpRequest({
-			Url = postUrl,
+			Url = WEBHOOK_URL .. "?wait=true",
 			Method = "POST",
 			Headers = headers,
 			Body = payload
@@ -593,11 +624,34 @@ local function sendToDiscord()
 		end
 	end
 
+	sendingDiscord = false
+
 	if success then
-		status(string.format("%d Item | %s\n✓ Update Discord", itemCount, totalStr))
+		lastAutoDiscordTotal = backpackTotal
+		if not isAuto then
+			status(string.format("%d Item | %s\n✓ Update Discord", itemCount, totalStr))
+		else
+			status(string.format("%d Item | %s\n✓ Auto update Discord", itemCount, totalStr))
+		end
+		return true
 	else
-		status("Gagal kirim Discord\nCek executor / webhook")
+		if not isAuto then
+			status("Gagal kirim Discord\nCek executor / webhook")
+		end
+		return false
 	end
+end
+
+-- Auto update Discord setelah gift (dengan validasi)
+local function autoUpdateDiscordAfterGift(okCount)
+	task.spawn(function()
+		-- Validasi: hanya kirim kalau ada gift sukses
+		if not okCount or okCount <= 0 then return end
+		task.wait(0.5)
+		-- Jangan kirim kalau masih running
+		if running then return end
+		sendToDiscord({ auto = true })
+	end)
 end
 
 local function closeLoading()
@@ -617,6 +671,10 @@ local function manualCheckValue()
 	local isDoubleTap = (now - lastCheckClick) <= DOUBLE_TAP_WINDOW
 	lastCheckClick = now
 
+	if isDoubleTap then
+		lastCheckClick = 0
+	end
+
 	status("Cek backpack...")
 	softOpenBackpack()
 	task.wait(0.3)
@@ -625,7 +683,7 @@ local function manualCheckValue()
 
 	if isDoubleTap then
 		task.wait(0.15)
-		sendToDiscord()
+		sendToDiscord({ force = true })
 	end
 end
 
@@ -775,11 +833,15 @@ local function runGiftByValue()
 		status(string.format("Stopped / Gagal\n%s\nKurang: %s | OK %d FAIL %d",
 			progressText(), formatVal(kurang), okCount, failCount))
 	end
+
+	-- Auto update Discord (hanya kalau ada gift sukses)
+	autoUpdateDiscordAfterGift(okCount)
 end
 
 startBtn.MouseButton1Click:Connect(function() task.spawn(runGiftByValue) end)
 scanBtn.MouseButton1Click:Connect(function() task.spawn(manualCheckValue) end)
 stopBtn.MouseButton1Click:Connect(function()
+	if not running then return end
 	running = false
 	startBtn.Text = "▶ Mulai Gift"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
@@ -788,6 +850,10 @@ stopBtn.MouseButton1Click:Connect(function()
 		status(string.format("Stopped\n%s\nKurang: %s", progressText(), formatVal(kurang)))
 	else
 		status(string.format("Stopped\nGift %s | Bag %s", formatVal(lastGifted), formatVal(backpackTotal)))
+	end
+	-- Auto update saat stop (kalau sempat gift)
+	if lastGifted > 0 then
+		autoUpdateDiscordAfterGift(1)
 	end
 end)
 
@@ -853,4 +919,4 @@ task.delay(5, function()
 	if loadGui and loadGui.Parent then closeLoading() end
 end)
 
-print("Gift FULL + Discord 1 pesan/akun loaded")
+print("Gift FULL + Auto Discord loaded")
