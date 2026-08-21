@@ -943,6 +943,7 @@ end)
 
 -- ===== PLAYER LEAVE → AUTO UPDATE =====
 local function onPlayerLeft(plr)
+	-- Target gift keluar
 	if selectedPlayer and plr == selectedPlayer then
 		selectedPlayer = nil
 		selectedPlayerOnline = false
@@ -960,9 +961,41 @@ local function onPlayerLeft(plr)
 		end)
 	end
 
+	-- Seller (kamu) keluar → EDIT saja, JANGAN delete
 	if plr == LP then
 		pcall(function()
-			sendToDiscord({ auto = true, force = true, status = "Offline" })
+			-- Paksa mode edit-only supaya pesan tidak hilang
+			local msgId = getMessageId()
+			if not msgId or msgId == "" then return end
+
+			local itemCount = #cachedItems
+			local totalStr = formatVal(backpackTotal)
+			local timeStr = os.date("%d/%m %H:%M")
+
+			local embed = {
+				title = "📦 Backpack - " .. LP.Name,
+				color = 10027059, -- abu (offline)
+				fields = {
+					{ name = "Item", value = tostring(itemCount), inline = true },
+					{ name = "Total Value", value = totalStr, inline = true },
+					{ name = "Status", value = "Offline", inline = true },
+					{ name = "Update", value = timeStr, inline = true },
+				},
+				footer = { text = "Magic Loot • " .. LP.Name }
+			}
+
+			local payload = HttpService:JSONEncode({
+				username = "Magic Loot",
+				embeds = { embed }
+			})
+
+			-- Hanya EDIT, tidak delete / post baru
+			httpRequest({
+				Url = WEBHOOK_URL .. "/messages/" .. tostring(msgId),
+				Method = "PATCH",
+				Headers = { ["Content-Type"] = "application/json" },
+				Body = payload
+			})
 		end)
 	end
 end
