@@ -29,7 +29,7 @@ for name, price in pairs(Prices) do
 	PriceLower[name:lower()] = { name = name, price = price }
 end
 
-local MIN_ITEM_VALUE = 2000
+local MIN_ITEM_VALUE = 1000
 local selectedPlayer = nil
 local selectedPlayerOnline = false
 local running = false
