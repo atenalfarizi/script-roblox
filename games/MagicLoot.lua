@@ -16,12 +16,14 @@ local WEBHOOK_URL = "https://discord.com/api/webhooks/1540078528911900783/aEt2AN
 -- ====================================
 
 local Prices = {
-	["Bear Bone"] = 1120,
-	["Ice Magic Crystal"] = 1340,
-	["Bear Paw"] = 1610,
-	["Scarlet Heart Flower"] = 1930, ["绯心花"] = 1930,
-	["Blue Dragon Egg"] = 2320,
-	["Frost Vein"] = 2780,
+	["Terrifying Jaws"] = 7300,
+	["Sword Fern"] = 8760,
+	["Plague Mushroom"] = 10500,
+	["Bog Muck"] = 12600,
+	["Ant Head"] = 15100, 
+	["Spirit Leaf"] = 18100,
+	["Hexed Branch"] = 21700,
+	["Eye of the Ice Dragon"] = 6950,
 }
 
 local PriceLower = {}
