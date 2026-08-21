@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (FULL + Auto Discord setelah gift)
+-- Magic Loot - Gift by Value (FULL + Auto Discord + Online/Offline)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -31,6 +31,7 @@ end
 
 local MIN_ITEM_VALUE = 1000
 local selectedPlayer = nil
+local selectedPlayerOnline = false
 local running = false
 local cachedItems = {}
 local backpackTotal = 0
@@ -54,13 +55,13 @@ local scriptReady = false
 local lastScanAt = 0
 local SCAN_COOLDOWN = 0.6
 
--- Double tap + Discord safety
+-- Discord safety
 local lastCheckClick = 0
 local DOUBLE_TAP_WINDOW = 3.0
 local sendingDiscord = false
 local lastDiscordSend = 0
 local DISCORD_COOLDOWN = 8.0
-local lastAutoDiscordTotal = -1   -- validasi: jangan kirim data sama berulang
+local lastAutoDiscordTotal = -1
 
 local function formatVal(m)
 	m = tonumber(m) or 0
@@ -71,7 +72,7 @@ local function formatVal(m)
 	return "0B"
 end
 
--- ===== DISCORD STORE (file + workspace) =====
+-- ===== DISCORD STORE =====
 local STORE_FILE = "MLGift_DiscordMsgIds.json"
 
 local function loadMsgIds()
@@ -145,7 +146,7 @@ local function clearMessageId()
 	saveMsgIds(data)
 end
 
--- ===== HTTP REQUEST (multi executor) =====
+-- ===== HTTP REQUEST =====
 local function httpRequest(opts)
 	if syn and syn.request then
 		return syn.request(opts)
@@ -441,7 +442,8 @@ local function refreshPlayers()
 			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
 			b.MouseButton1Click:Connect(function()
 				selectedPlayer = plr
-				status("Target: " .. plr.Name)
+				selectedPlayerOnline = true
+				status("Target: " .. plr.Name .. " (Online)")
 				for _, x in ipairs(pScroll:GetChildren()) do
 					if x:IsA("TextButton") then x.BackgroundColor3 = Color3.fromRGB(45, 50, 65) end
 				end
@@ -525,19 +527,18 @@ local function showScanResult()
 	end
 end
 
--- ===== KIRIM / EDIT DISCORD (dengan validasi) =====
+-- ===== DISCORD =====
 local function sendToDiscord(opts)
 	opts = opts or {}
 	local isAuto = opts.auto == true
 	local force = opts.force == true
+	local forceStatus = opts.status
 
-	-- Validasi 1: sedang kirim
 	if sendingDiscord then
 		if not isAuto then status("Sedang kirim Discord...") end
 		return false
 	end
 
-	-- Validasi 2: cooldown
 	if not force and (os.clock() - lastDiscordSend) < DISCORD_COOLDOWN then
 		if not isAuto then
 			status(string.format("Tunggu %ds lagi\nbaru bisa kirim Discord",
@@ -546,14 +547,12 @@ local function sendToDiscord(opts)
 		return false
 	end
 
-	-- Validasi 3: webhook
 	if not WEBHOOK_URL or WEBHOOK_URL == "" or WEBHOOK_URL:find("ISI_WEBHOOK") then
 		if not isAuto then status("Webhook belum diisi!") end
 		return false
 	end
 
-	-- Validasi 4: data tidak berubah (khusus auto, hemat request)
-	if isAuto and not force and lastAutoDiscordTotal == backpackTotal then
+	if isAuto and not force and lastAutoDiscordTotal == backpackTotal and not forceStatus then
 		return false
 	end
 
@@ -563,13 +562,15 @@ local function sendToDiscord(opts)
 	local itemCount = #cachedItems
 	local totalStr = formatVal(backpackTotal)
 	local timeStr = os.date("%d/%m %H:%M")
+	local onlineStatus = forceStatus or "Online"
 
 	local embed = {
 		title = "📦 Backpack - " .. LP.Name,
-		color = 5814783,
+		color = (onlineStatus == "Online") and 5814783 or 10027059,
 		fields = {
 			{ name = "Item", value = tostring(itemCount), inline = true },
 			{ name = "Total Value", value = totalStr, inline = true },
+			{ name = "Status", value = onlineStatus, inline = true },
 			{ name = "Update", value = timeStr, inline = true },
 		},
 		footer = { text = "Magic Loot • " .. LP.Name }
@@ -584,7 +585,6 @@ local function sendToDiscord(opts)
 	local msgId = getMessageId()
 	local success = false
 
-	-- 1. Coba EDIT
 	if msgId and msgId ~= "" then
 		local res = httpRequest({
 			Url = WEBHOOK_URL .. "/messages/" .. msgId,
@@ -597,11 +597,9 @@ local function sendToDiscord(opts)
 			success = true
 		else
 			clearMessageId()
-			msgId = nil
 		end
 	end
 
-	-- 2. Buat baru kalau perlu
 	if not success then
 		local res = httpRequest({
 			Url = WEBHOOK_URL .. "?wait=true",
@@ -629,9 +627,9 @@ local function sendToDiscord(opts)
 	if success then
 		lastAutoDiscordTotal = backpackTotal
 		if not isAuto then
-			status(string.format("%d Item | %s\n✓ Update Discord", itemCount, totalStr))
+			status(string.format("%d Item | %s | %s\n✓ Update Discord", itemCount, totalStr, onlineStatus))
 		else
-			status(string.format("%d Item | %s\n✓ Auto update Discord", itemCount, totalStr))
+			status(string.format("%d Item | %s | %s\n✓ Auto update Discord", itemCount, totalStr, onlineStatus))
 		end
 		return true
 	else
@@ -642,13 +640,10 @@ local function sendToDiscord(opts)
 	end
 end
 
--- Auto update Discord setelah gift (dengan validasi)
 local function autoUpdateDiscordAfterGift(okCount)
 	task.spawn(function()
-		-- Validasi: hanya kirim kalau ada gift sukses
 		if not okCount or okCount <= 0 then return end
 		task.wait(0.5)
-		-- Jangan kirim kalau masih running
 		if running then return end
 		sendToDiscord({ auto = true })
 	end)
@@ -670,10 +665,7 @@ local function manualCheckValue()
 	local now = os.clock()
 	local isDoubleTap = (now - lastCheckClick) <= DOUBLE_TAP_WINDOW
 	lastCheckClick = now
-
-	if isDoubleTap then
-		lastCheckClick = 0
-	end
+	if isDoubleTap then lastCheckClick = 0 end
 
 	status("Cek backpack...")
 	softOpenBackpack()
@@ -716,9 +708,7 @@ local function ensureHeld(oid)
 	for attempt = 1, 3 do
 		holdByOnlyID(oid)
 		task.wait(delayHold)
-		if isHeld(oid) then
-			return true
-		end
+		if isHeld(oid) then return true end
 		task.wait(holdRetryWait)
 	end
 	return false
@@ -743,6 +733,12 @@ end
 local function runGiftByValue()
 	if running then return end
 	if not selectedPlayer then status("Pilih player") return end
+	if not selectedPlayer.Parent then
+		status("Target offline")
+		selectedPlayer = nil
+		selectedPlayerOnline = false
+		return
+	end
 
 	local targetB = tonumber(valBox.Text) or 0
 	if targetB <= 0 then status("Isi target (1 = 1B)") return end
@@ -752,7 +748,6 @@ local function runGiftByValue()
 		currentTarget = newTarget
 		currentGifted = 0
 	end
-
 	if currentGifted >= currentTarget then
 		currentGifted = 0
 	end
@@ -774,7 +769,10 @@ local function runGiftByValue()
 
 	while running do
 		if currentGifted >= currentTarget or #pool == 0 then break end
-		if not selectedPlayer.Parent then break end
+		if not selectedPlayer or not selectedPlayer.Parent then
+			status("Target keluar game")
+			break
+		end
 
 		local remaining = currentTarget - currentGifted
 		local it, idx = pickItem(remaining, pool)
@@ -834,7 +832,6 @@ local function runGiftByValue()
 			progressText(), formatVal(kurang), okCount, failCount))
 	end
 
-	-- Auto update Discord (hanya kalau ada gift sukses)
 	autoUpdateDiscordAfterGift(okCount)
 end
 
@@ -851,10 +848,39 @@ stopBtn.MouseButton1Click:Connect(function()
 	else
 		status(string.format("Stopped\nGift %s | Bag %s", formatVal(lastGifted), formatVal(backpackTotal)))
 	end
-	-- Auto update saat stop (kalau sempat gift)
 	if lastGifted > 0 then
 		autoUpdateDiscordAfterGift(1)
 	end
+end)
+
+-- ===== PLAYER LEAVE → AUTO UPDATE =====
+local function onPlayerLeft(plr)
+	if selectedPlayer and plr == selectedPlayer then
+		selectedPlayer = nil
+		selectedPlayerOnline = false
+		if running then
+			running = false
+			startBtn.Text = "▶ Mulai Gift"
+			startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
+			status("Target keluar game\nGift di-stop")
+		else
+			status("Target keluar game")
+		end
+		task.spawn(function()
+			task.wait(0.3)
+			sendToDiscord({ auto = true, force = true })
+		end)
+	end
+
+	if plr == LP then
+		pcall(function()
+			sendToDiscord({ auto = true, force = true, status = "Offline" })
+		end)
+	end
+end
+
+Players.PlayerRemoving:Connect(function(plr)
+	task.spawn(onPlayerLeft, plr)
 end)
 
 local pendingScan = false
@@ -919,4 +945,4 @@ task.delay(5, function()
 	if loadGui and loadGui.Parent then closeLoading() end
 end)
 
-print("Gift FULL + Auto Discord loaded")
+print("Gift FULL + Auto Discord + Online/Offline loaded")
