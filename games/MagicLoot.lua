@@ -527,7 +527,84 @@ local function showScanResult()
 	end
 end
 
--- ===== DISCORD =====
+-- ===== DISCORD (lebih stabil + 3 mode) =====
+local DISCORD_MODE = "replace"   -- "replace" | "edit" | "new"
+local sendingDiscord = false
+local lastDiscordSend = 0
+local DISCORD_COOLDOWN = 8.0
+local lastAutoDiscordTotal = -1
+
+local function httpRequest(opts)
+	if syn and syn.request then
+		return syn.request(opts)
+	elseif http_request then
+		return http_request(opts)
+	elseif request then
+		return request(opts)
+	elseif http and http.request then
+		return http.request(opts)
+	else
+		local ok, res = pcall(function()
+			return HttpService:RequestAsync({
+				Url = opts.Url,
+				Method = opts.Method or "POST",
+				Headers = opts.Headers or {},
+				Body = opts.Body
+			})
+		end)
+		if ok then return res end
+		return nil
+	end
+end
+
+local function isHttpOk(res)
+	if not res then return false end
+	local code = res.StatusCode or res.Status or res.status_code or 0
+	return res.Success == true or code == 200 or code == 204
+end
+
+local function deleteDiscordMessage(msgId)
+	if not msgId or msgId == "" then return false end
+	local res = httpRequest({
+		Url = WEBHOOK_URL .. "/messages/" .. tostring(msgId),
+		Method = "DELETE",
+		Headers = { ["Content-Type"] = "application/json" }
+	})
+	return isHttpOk(res)
+end
+
+local function postNewDiscordMessage(payload)
+	local res = httpRequest({
+		Url = WEBHOOK_URL .. "?wait=true",
+		Method = "POST",
+		Headers = { ["Content-Type"] = "application/json" },
+		Body = payload
+	})
+	if not isHttpOk(res) then return nil end
+
+	local bodyStr = res.Body or res.body
+	if bodyStr and bodyStr ~= "" then
+		local ok, body = pcall(function()
+			return HttpService:JSONDecode(bodyStr)
+		end)
+		if ok and body and body.id then
+			return tostring(body.id)
+		end
+	end
+	return true -- sukses tapi ID tidak kebaca
+end
+
+local function editDiscordMessage(msgId, payload)
+	if not msgId or msgId == "" then return false end
+	local res = httpRequest({
+		Url = WEBHOOK_URL .. "/messages/" .. tostring(msgId),
+		Method = "PATCH",
+		Headers = { ["Content-Type"] = "application/json" },
+		Body = payload
+	})
+	return isHttpOk(res)
+end
+
 local function sendToDiscord(opts)
 	opts = opts or {}
 	local isAuto = opts.auto == true
@@ -581,42 +658,53 @@ local function sendToDiscord(opts)
 		embeds = { embed }
 	})
 
-	local headers = { ["Content-Type"] = "application/json" }
 	local msgId = getMessageId()
 	local success = false
+	local mode = DISCORD_MODE
 
-	if msgId and msgId ~= "" then
-		local res = httpRequest({
-			Url = WEBHOOK_URL .. "/messages/" .. msgId,
-			Method = "PATCH",
-			Headers = headers,
-			Body = payload
-		})
-		local code = res and (res.StatusCode or res.Status or res.status_code)
-		if res and (res.Success or code == 200) then
+	-- MODE: EDIT
+	if mode == "edit" and msgId then
+		if editDiscordMessage(msgId, payload) then
 			success = true
 		else
 			clearMessageId()
+			msgId = nil
 		end
 	end
 
+	-- MODE: REPLACE (rekomendasi) — hapus lama + buat baru
+	if not success and (mode == "replace" or mode == "edit") then
+		if msgId then
+			deleteDiscordMessage(msgId)
+			clearMessageId()
+			task.wait(0.25)
+		end
+		local newId = postNewDiscordMessage(payload)
+		if newId then
+			if type(newId) == "string" then
+				setMessageId(newId)
+			end
+			success = true
+		end
+	end
+
+	-- MODE: NEW — selalu buat baru
+	if not success and mode == "new" then
+		local newId = postNewDiscordMessage(payload)
+		if newId then
+			if type(newId) == "string" then
+				setMessageId(newId)
+			end
+			success = true
+		end
+	end
+
+	-- Fallback terakhir
 	if not success then
-		local res = httpRequest({
-			Url = WEBHOOK_URL .. "?wait=true",
-			Method = "POST",
-			Headers = headers,
-			Body = payload
-		})
-		local code = res and (res.StatusCode or res.Status or res.status_code)
-		if res and (res.Success or code == 200) then
-			local bodyStr = res.Body or res.body
-			if bodyStr and bodyStr ~= "" then
-				local ok, body = pcall(function()
-					return HttpService:JSONDecode(bodyStr)
-				end)
-				if ok and body and body.id then
-					setMessageId(body.id)
-				end
+		local newId = postNewDiscordMessage(payload)
+		if newId then
+			if type(newId) == "string" then
+				setMessageId(newId)
 			end
 			success = true
 		end
@@ -627,9 +715,9 @@ local function sendToDiscord(opts)
 	if success then
 		lastAutoDiscordTotal = backpackTotal
 		if not isAuto then
-			status(string.format("%d Item | %s | %s\n✓ Update Discord", itemCount, totalStr, onlineStatus))
+			status(string.format("%d Item | %s | %s\n✓ Discord (%s)", itemCount, totalStr, onlineStatus, mode))
 		else
-			status(string.format("%d Item | %s | %s\n✓ Auto update Discord", itemCount, totalStr, onlineStatus))
+			status(string.format("%d Item | %s | %s\n✓ Auto Discord", itemCount, totalStr, onlineStatus))
 		end
 		return true
 	else
