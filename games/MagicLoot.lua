@@ -1,4 +1,4 @@
--- Magic Loot - Gift by Value (FULL + Auto Discord + Online/Offline)
+-- Magic Loot - Gift by Value (FULL + Gift Log + Auto Discord + Online/Offline)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -12,7 +12,10 @@ local GIFT = "赠送请求"
 local SWITCH_HELD = "背包工具栏切换手持"
 
 -- ========== WEBHOOK DISCORD ==========
+-- Channel stock / cek backpack
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1540078528911900783/aEt2AN6EId7RSjsxu-xX87_E0jQFsgA4PrvenV8Yfw_QJyVWFNpdcy5-orGa2KDibc4Y"
+-- Channel LOG GIFT (terpisah) — ganti URL ini
+local GIFT_LOG_WEBHOOK = "https://discord.com/api/webhooks/1541505031226921001/KHt2RLqGJYXvDeuRGxk_XOCr9v1J3FEtUGktoNdaFbQXfHDGSY6IEha-gYQTc2U_0odC"
 -- ====================================
 
 local Prices = {
@@ -20,7 +23,7 @@ local Prices = {
 	["Sword Fern"] = 8760,
 	["Plague Mushroom"] = 10500,
 	["Bog Muck"] = 12600,
-	["Ant Head"] = 15100, 
+	["Ant Head"] = 15100,
 	["Spirit Leaf"] = 18100,
 	["Hexed Branch"] = 21700,
 	["Eye of the Ice Dragon"] = 6950,
@@ -31,24 +34,23 @@ for name, price in pairs(Prices) do
 	PriceLower[name:lower()] = { name = name, price = price }
 end
 
-local MIN_ITEM_VALUE = 1000
+local MIN_ITEM_VALUE = 15000
 local selectedPlayer = nil
 local selectedPlayerOnline = false
 local running = false
 local cachedItems = {}
 local backpackTotal = 0
 
--- ===== DELAY =====
 local delayHold = 0.75
 local delayAfterGift = 1.8
 local delayBetween = 1.0
 local holdRetryWait = 0.5
 local successCooldown = 1.6
 
--- ===== RESUME STATE =====
 local currentTarget = 0
 local currentGifted = 0
 local lastGifted = 0
+local lastGiftToUserId = nil
 
 local minimized = false
 local animating = false
@@ -57,13 +59,13 @@ local scriptReady = false
 local lastScanAt = 0
 local SCAN_COOLDOWN = 0.6
 
--- Discord safety
 local lastCheckClick = 0
 local DOUBLE_TAP_WINDOW = 3.0
 local sendingDiscord = false
 local lastDiscordSend = 0
 local DISCORD_COOLDOWN = 8.0
 local lastAutoDiscordTotal = -1
+local DISCORD_MODE = "replace"
 
 local function formatVal(m)
 	m = tonumber(m) or 0
@@ -80,16 +82,10 @@ local STORE_FILE = "MLGift_DiscordMsgIds.json"
 local function loadMsgIds()
 	local data = {}
 	if isfile and isfile(STORE_FILE) then
-		local ok, content = pcall(function()
-			return readfile(STORE_FILE)
-		end)
+		local ok, content = pcall(function() return readfile(STORE_FILE) end)
 		if ok and content and content ~= "" then
-			local ok2, decoded = pcall(function()
-				return HttpService:JSONDecode(content)
-			end)
-			if ok2 and type(decoded) == "table" then
-				data = decoded
-			end
+			local ok2, decoded = pcall(function() return HttpService:JSONDecode(content) end)
+			if ok2 and type(decoded) == "table" then data = decoded end
 		end
 	end
 	local folder = workspace:FindFirstChild("MLGiftDiscordStore")
@@ -97,9 +93,7 @@ local function loadMsgIds()
 		for _, v in ipairs(folder:GetChildren()) do
 			if v:IsA("StringValue") and v.Name:sub(1, 4) == "msg_" then
 				local name = v.Name:sub(5)
-				if not data[name] then
-					data[name] = v.Value
-				end
+				if not data[name] then data[name] = v.Value end
 			end
 		end
 	end
@@ -108,9 +102,7 @@ end
 
 local function saveMsgIds(data)
 	if writefile then
-		pcall(function()
-			writefile(STORE_FILE, HttpService:JSONEncode(data))
-		end)
+		pcall(function() writefile(STORE_FILE, HttpService:JSONEncode(data)) end)
 	end
 	local folder = workspace:FindFirstChild("MLGiftDiscordStore")
 	if not folder then
@@ -131,8 +123,7 @@ local function saveMsgIds(data)
 end
 
 local function getMessageId()
-	local data = loadMsgIds()
-	return data[LP.Name]
+	return loadMsgIds()[LP.Name]
 end
 
 local function setMessageId(id)
@@ -148,16 +139,11 @@ local function clearMessageId()
 	saveMsgIds(data)
 end
 
--- ===== HTTP REQUEST =====
 local function httpRequest(opts)
-	if syn and syn.request then
-		return syn.request(opts)
-	elseif http_request then
-		return http_request(opts)
-	elseif request then
-		return request(opts)
-	elseif http and http.request then
-		return http.request(opts)
+	if syn and syn.request then return syn.request(opts)
+	elseif http_request then return http_request(opts)
+	elseif request then return request(opts)
+	elseif http and http.request then return http.request(opts)
 	else
 		local ok, res = pcall(function()
 			return HttpService:RequestAsync({
@@ -170,6 +156,12 @@ local function httpRequest(opts)
 		if ok then return res end
 		return nil
 	end
+end
+
+local function isHttpOk(res)
+	if not res then return false end
+	local code = res.StatusCode or res.Status or res.status_code or 0
+	return res.Success == true or code == 200 or code == 204
 end
 
 pcall(function()
@@ -249,9 +241,7 @@ local function setBar(p, dur)
 end
 
 local function softOpenBackpack()
-	pcall(function()
-		RE:FireServer("打开背包")
-	end)
+	pcall(function() RE:FireServer("打开背包") end)
 	pcall(function()
 		Vim:SendKeyEvent(true, Enum.KeyCode.Backquote, false, game)
 		task.wait(0.03)
@@ -376,7 +366,7 @@ local function progressText()
 end
 
 local normalSize = UDim2.new(0, 240, 0, 270)
-local miniSize   = UDim2.new(0, 240, 0, 24)
+local miniSize = UDim2.new(0, 240, 0, 24)
 
 local function setMinimized(state)
 	if animating then return end
@@ -412,7 +402,6 @@ title.InputBegan:Connect(function(input)
 		startPos = f.Position
 	end
 end)
-
 UIS.InputChanged:Connect(function(input)
 	if not dragging then return end
 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
@@ -420,7 +409,6 @@ UIS.InputChanged:Connect(function(input)
 		f.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
-
 UIS.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = false
@@ -443,6 +431,11 @@ local function refreshPlayers()
 			b.TextSize = 11
 			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
 			b.MouseButton1Click:Connect(function()
+				if selectedPlayer ~= plr then
+					currentGifted = 0
+					currentTarget = 0
+					lastGiftToUserId = nil
+				end
 				selectedPlayer = plr
 				selectedPlayerOnline = true
 				status("Target: " .. plr.Name .. " (Online)")
@@ -529,50 +522,41 @@ local function showScanResult()
 	end
 end
 
--- ===== DISCORD (lebih stabil + 3 mode) =====
-local DISCORD_MODE = "replace"   -- "replace" | "edit" | "new"
-local sendingDiscord = false
-local lastDiscordSend = 0
-local DISCORD_COOLDOWN = 8.0
-local lastAutoDiscordTotal = -1
-
-local function httpRequest(opts)
-	if syn and syn.request then
-		return syn.request(opts)
-	elseif http_request then
-		return http_request(opts)
-	elseif request then
-		return request(opts)
-	elseif http and http.request then
-		return http.request(opts)
-	else
-		local ok, res = pcall(function()
-			return HttpService:RequestAsync({
-				Url = opts.Url,
-				Method = opts.Method or "POST",
-				Headers = opts.Headers or {},
-				Body = opts.Body
+-- ===== GIFT LOG (channel terpisah) =====
+local function sendGiftLog(titleText, description, color)
+	if not GIFT_LOG_WEBHOOK or GIFT_LOG_WEBHOOK == "" or GIFT_LOG_WEBHOOK:find("ISI_WEBHOOK") then
+		return
+	end
+	task.spawn(function()
+		local embed = {
+			title = titleText,
+			description = description,
+			color = color or 5814783,
+			footer = { text = "Gift Log • " .. LP.Name .. " • " .. os.date("%d/%m %H:%M") },
+		}
+		local payload = HttpService:JSONEncode({
+			username = "Magic Loot Gift Log",
+			embeds = { embed },
+		})
+		pcall(function()
+			httpRequest({
+				Url = GIFT_LOG_WEBHOOK,
+				Method = "POST",
+				Headers = { ["Content-Type"] = "application/json" },
+				Body = payload,
 			})
 		end)
-		if ok then return res end
-		return nil
-	end
+	end)
 end
 
-local function isHttpOk(res)
-	if not res then return false end
-	local code = res.StatusCode or res.Status or res.status_code or 0
-	return res.Success == true or code == 200 or code == 204
-end
-
+-- ===== DISCORD STOCK =====
 local function deleteDiscordMessage(msgId)
 	if not msgId or msgId == "" then return false end
-	local res = httpRequest({
+	return isHttpOk(httpRequest({
 		Url = WEBHOOK_URL .. "/messages/" .. tostring(msgId),
 		Method = "DELETE",
 		Headers = { ["Content-Type"] = "application/json" }
-	})
-	return isHttpOk(res)
+	}))
 end
 
 local function postNewDiscordMessage(payload)
@@ -583,28 +567,22 @@ local function postNewDiscordMessage(payload)
 		Body = payload
 	})
 	if not isHttpOk(res) then return nil end
-
 	local bodyStr = res.Body or res.body
 	if bodyStr and bodyStr ~= "" then
-		local ok, body = pcall(function()
-			return HttpService:JSONDecode(bodyStr)
-		end)
-		if ok and body and body.id then
-			return tostring(body.id)
-		end
+		local ok, body = pcall(function() return HttpService:JSONDecode(bodyStr) end)
+		if ok and body and body.id then return tostring(body.id) end
 	end
-	return true -- sukses tapi ID tidak kebaca
+	return true
 end
 
 local function editDiscordMessage(msgId, payload)
 	if not msgId or msgId == "" then return false end
-	local res = httpRequest({
+	return isHttpOk(httpRequest({
 		Url = WEBHOOK_URL .. "/messages/" .. tostring(msgId),
 		Method = "PATCH",
 		Headers = { ["Content-Type"] = "application/json" },
 		Body = payload
-	})
-	return isHttpOk(res)
+	}))
 end
 
 local function sendToDiscord(opts)
@@ -617,7 +595,6 @@ local function sendToDiscord(opts)
 		if not isAuto then status("Sedang kirim Discord...") end
 		return false
 	end
-
 	if not force and (os.clock() - lastDiscordSend) < DISCORD_COOLDOWN then
 		if not isAuto then
 			status(string.format("Tunggu %ds lagi\nbaru bisa kirim Discord",
@@ -625,12 +602,10 @@ local function sendToDiscord(opts)
 		end
 		return false
 	end
-
 	if not WEBHOOK_URL or WEBHOOK_URL == "" or WEBHOOK_URL:find("ISI_WEBHOOK") then
 		if not isAuto then status("Webhook belum diisi!") end
 		return false
 	end
-
 	if isAuto and not force and lastAutoDiscordTotal == backpackTotal and not forceStatus then
 		return false
 	end
@@ -664,7 +639,6 @@ local function sendToDiscord(opts)
 	local success = false
 	local mode = DISCORD_MODE
 
-	-- MODE: EDIT
 	if mode == "edit" and msgId then
 		if editDiscordMessage(msgId, payload) then
 			success = true
@@ -674,7 +648,6 @@ local function sendToDiscord(opts)
 		end
 	end
 
-	-- MODE: REPLACE (rekomendasi) — hapus lama + buat baru
 	if not success and (mode == "replace" or mode == "edit") then
 		if msgId then
 			deleteDiscordMessage(msgId)
@@ -683,31 +656,15 @@ local function sendToDiscord(opts)
 		end
 		local newId = postNewDiscordMessage(payload)
 		if newId then
-			if type(newId) == "string" then
-				setMessageId(newId)
-			end
+			if type(newId) == "string" then setMessageId(newId) end
 			success = true
 		end
 	end
 
-	-- MODE: NEW — selalu buat baru
-	if not success and mode == "new" then
-		local newId = postNewDiscordMessage(payload)
-		if newId then
-			if type(newId) == "string" then
-				setMessageId(newId)
-			end
-			success = true
-		end
-	end
-
-	-- Fallback terakhir
 	if not success then
 		local newId = postNewDiscordMessage(payload)
 		if newId then
-			if type(newId) == "string" then
-				setMessageId(newId)
-			end
+			if type(newId) == "string" then setMessageId(newId) end
 			success = true
 		end
 	end
@@ -717,15 +674,13 @@ local function sendToDiscord(opts)
 	if success then
 		lastAutoDiscordTotal = backpackTotal
 		if not isAuto then
-			status(string.format("%d Item | %s | %s\n✓ Discord (%s)", itemCount, totalStr, onlineStatus, mode))
+			status(string.format("%d Item | %s | %s\n✓ Discord", itemCount, totalStr, onlineStatus))
 		else
 			status(string.format("%d Item | %s | %s\n✓ Auto Discord", itemCount, totalStr, onlineStatus))
 		end
 		return true
 	else
-		if not isAuto then
-			status("Gagal kirim Discord\nCek executor / webhook")
-		end
+		if not isAuto then status("Gagal kirim Discord") end
 		return false
 	end
 end
@@ -751,7 +706,6 @@ end
 
 local function manualCheckValue()
 	if scanning then status("Sedang scan...") return end
-
 	local now = os.clock()
 	local isDoubleTap = (now - lastCheckClick) <= DOUBLE_TAP_WINDOW
 	lastCheckClick = now
@@ -834,6 +788,12 @@ local function runGiftByValue()
 	if targetB <= 0 then status("Isi target (1 = 1B)") return end
 	local newTarget = targetB * 1000
 
+	if lastGiftToUserId and lastGiftToUserId ~= selectedPlayer.UserId then
+		currentGifted = 0
+		currentTarget = 0
+	end
+	lastGiftToUserId = selectedPlayer.UserId
+
 	if newTarget ~= currentTarget then
 		currentTarget = newTarget
 		currentGifted = 0
@@ -854,13 +814,25 @@ local function runGiftByValue()
 	startBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 40)
 
 	local uid = selectedPlayer.UserId
+	local targetName = selectedPlayer.Name
 	local okCount, failCount = 0, 0
 	local pool = table.clone(cachedItems)
+	local stopReason = "selesai"
+
+	sendGiftLog(
+		"🎁 Gift Dimulai",
+		string.format(
+			"**Seller:** %s\n**Target:** %s\n**Target Value:** %s\n**Backpack:** %s (%d item)",
+			LP.Name, targetName, formatVal(currentTarget), formatVal(backpackTotal), #cachedItems
+		),
+		3066993
+	)
 
 	while running do
 		if currentGifted >= currentTarget or #pool == 0 then break end
 		if not selectedPlayer or not selectedPlayer.Parent then
 			status("Target keluar game")
+			stopReason = "target_left"
 			break
 		end
 
@@ -875,7 +847,10 @@ local function runGiftByValue()
 			failCount += 1
 			status(string.format("Gagal hold %s\n%s | fail %d", it.name, progressText(), failCount))
 			table.remove(pool, idx)
-			if failCount >= 8 then break end
+			if failCount >= 8 then
+				stopReason = "failed"
+				break
+			end
 			task.wait(delayBetween)
 			continue
 		end
@@ -888,7 +863,6 @@ local function runGiftByValue()
 			lastGifted = currentGifted
 			okCount += 1
 			table.remove(pool, idx)
-
 			for j = #cachedItems, 1, -1 do
 				if tostring(cachedItems[j].onlyID) == tostring(it.onlyID) then
 					table.remove(cachedItems, j)
@@ -902,24 +876,59 @@ local function runGiftByValue()
 			failCount += 1
 			status(string.format("GIFT FAILED %s\n%s | fail %d", it.name, progressText(), failCount))
 			task.wait(1.6)
-			if failCount >= 8 then break end
+			if failCount >= 8 then
+				stopReason = "failed"
+				break
+			end
 		end
 
 		task.wait(delayBetween)
 	end
 
-	running = false
+		running = false
 	startBtn.Text = "▶ Mulai Gift"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
 
 	local kurang = math.max(0, currentTarget - currentGifted)
-	if currentGifted >= currentTarget then
+	local sisaBag = formatVal(backpackTotal)
+
+	if stopReason == "target_left" then
+		status(string.format("Target keluar\n%s\nKurang: %s", progressText(), formatVal(kurang)))
+		sendGiftLog("🚪 Gift Stop — Target Keluar",
+			string.format(
+				"**Seller:** %s\n**Target:** %s\n**Terkirim:** %s / %s\n**Kurang:** %s\n**Sisa bag:** %s\n**OK:** %d | **FAIL:** %d",
+				LP.Name, targetName, formatVal(currentGifted), formatVal(currentTarget), formatVal(kurang), sisaBag, okCount, failCount
+			),
+			15105570)
+
+	elseif stopReason == "failed" then
+		status(string.format("Stopped / Gagal\n%s\nKurang: %s | OK %d FAIL %d", progressText(), formatVal(kurang), okCount, failCount))
+		sendGiftLog("❌ Gift Stop — Failed",
+			string.format(
+				"**Seller:** %s\n**Target:** %s\n**Terkirim:** %s / %s\n**Kurang:** %s\n**Sisa bag:** %s\n**OK:** %d | **FAIL:** %d",
+				LP.Name, targetName, formatVal(currentGifted), formatVal(currentTarget), formatVal(kurang), sisaBag, okCount, failCount
+			),
+			15158332)
+
+	elseif currentGifted >= currentTarget then
 		status(string.format("Selesai ✓\n%s\nOK %d | FAIL %d", progressText(), okCount, failCount))
+		sendGiftLog("✅ Gift Selesai",
+			string.format(
+				"**Seller:** %s\n**Target:** %s\n**Terkirim:** %s / %s\n**OK:** %d | **FAIL:** %d\n**Sisa bag:** %s",
+				LP.Name, targetName, formatVal(currentGifted), formatVal(currentTarget), okCount, failCount, sisaBag
+			),
+			3066993)
 		currentGifted = 0
 		currentTarget = 0
+
 	else
-		status(string.format("Stopped / Gagal\n%s\nKurang: %s | OK %d FAIL %d",
-			progressText(), formatVal(kurang), okCount, failCount))
+		status(string.format("Stopped / Gagal\n%s\nKurang: %s | OK %d FAIL %d", progressText(), formatVal(kurang), okCount, failCount))
+		sendGiftLog("⚠️ Gift Stop — Item Habis / Kurang",
+			string.format(
+				"**Seller:** %s\n**Target:** %s\n**Terkirim:** %s / %s\n**Kurang:** %s\n**Sisa bag:** %s\n**OK:** %d | **FAIL:** %d",
+				LP.Name, targetName, formatVal(currentGifted), formatVal(currentTarget), formatVal(kurang), sisaBag, okCount, failCount
+			),
+			16776960)
 	end
 
 	autoUpdateDiscordAfterGift(okCount)
@@ -933,19 +942,22 @@ stopBtn.MouseButton1Click:Connect(function()
 	startBtn.Text = "▶ Mulai Gift"
 	startBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 60)
 	local kurang = math.max(0, currentTarget - currentGifted)
+	local targetName = selectedPlayer and selectedPlayer.Name or "?"
 	if currentTarget > 0 then
 		status(string.format("Stopped\n%s\nKurang: %s", progressText(), formatVal(kurang)))
 	else
 		status(string.format("Stopped\nGift %s | Bag %s", formatVal(lastGifted), formatVal(backpackTotal)))
 	end
+	sendGiftLog("🛑 Gift Stop — User",
+		string.format("**Seller:** %s\n**Target:** %s\n**Terkirim:** %s / %s\n**Kurang:** %s",
+			LP.Name, targetName, formatVal(currentGifted), formatVal(currentTarget), formatVal(kurang)),
+		9807270)
 	if lastGifted > 0 then
 		autoUpdateDiscordAfterGift(1)
 	end
 end)
 
--- ===== PLAYER LEAVE → AUTO UPDATE =====
 local function onPlayerLeft(plr)
-	-- Target gift keluar
 	if selectedPlayer and plr == selectedPlayer then
 		selectedPlayer = nil
 		selectedPlayerOnline = false
@@ -962,41 +974,26 @@ local function onPlayerLeft(plr)
 			sendToDiscord({ auto = true, force = true })
 		end)
 	end
-
-	-- Seller (kamu) keluar → EDIT saja, JANGAN delete
 	if plr == LP then
 		pcall(function()
-			-- Paksa mode edit-only supaya pesan tidak hilang
 			local msgId = getMessageId()
 			if not msgId or msgId == "" then return end
-
-			local itemCount = #cachedItems
-			local totalStr = formatVal(backpackTotal)
-			local timeStr = os.date("%d/%m %H:%M")
-
 			local embed = {
 				title = "📦 Backpack - " .. LP.Name,
-				color = 10027059, -- abu (offline)
+				color = 10027059,
 				fields = {
-					{ name = "Item", value = tostring(itemCount), inline = true },
-					{ name = "Total Value", value = totalStr, inline = true },
+					{ name = "Item", value = tostring(#cachedItems), inline = true },
+					{ name = "Total Value", value = formatVal(backpackTotal), inline = true },
 					{ name = "Status", value = "Offline", inline = true },
-					{ name = "Update", value = timeStr, inline = true },
+					{ name = "Update", value = os.date("%d/%m %H:%M"), inline = true },
 				},
 				footer = { text = "Magic Loot • " .. LP.Name }
 			}
-
-			local payload = HttpService:JSONEncode({
-				username = "Magic Loot",
-				embeds = { embed }
-			})
-
-			-- Hanya EDIT, tidak delete / post baru
 			httpRequest({
 				Url = WEBHOOK_URL .. "/messages/" .. tostring(msgId),
 				Method = "PATCH",
 				Headers = { ["Content-Type"] = "application/json" },
-				Body = payload
+				Body = HttpService:JSONEncode({ username = "Magic Loot", embeds = { embed } })
 			})
 		end)
 	end
@@ -1038,7 +1035,6 @@ task.spawn(function()
 		loadSub.Text = string.format("Ketemu %d item | %s 💕", #cachedItems, formatVal(backpackTotal))
 	end
 	task.wait(0.35)
-
 	if #cachedItems == 0 then
 		setBar(0.75, 0.25)
 		loadTitle.Text = "Coba lagi..."
@@ -1051,7 +1047,6 @@ task.spawn(function()
 		end
 		task.wait(0.3)
 	end
-
 	setBar(1, 0.25)
 	if #cachedItems > 0 then
 		loadTitle.Text = "Semangat Jualannya Cayang ♡"
@@ -1068,4 +1063,4 @@ task.delay(5, function()
 	if loadGui and loadGui.Parent then closeLoading() end
 end)
 
-print("Gift FULL + Auto Discord + Online/Offline loaded")
+print("Gift FULL + Gift Log loaded")
