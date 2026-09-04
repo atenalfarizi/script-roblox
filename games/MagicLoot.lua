@@ -19,14 +19,14 @@ local GIFT_LOG_WEBHOOK = "https://discord.com/api/webhooks/1541505031226921001/K
 -- ====================================
 
 local Prices = {
-	["Nether Fruit"] = 235000,
-	["Hellfire"] = 196000,
-	["Infernal Rose"] = 163000,
-	["Crimson Crystal"] = 136000,
-	["Knight Mask"] = 113000,
-	["Broken Blade"] = 93800,
-	["Demon Horn"] = 78200,
 	["Demon Tail"] = 65200,
+	["Demon Horn"] = 78200,
+	["Broken Blade"] = 93800,
+	["Knight Mask"] = 113000,
+	["Crimson Crystal"] = 136000,
+	["Infernal Rose"] = 163000,
+	["Hellfire"] = 196000,
+	["Nether Fruit"] = 235000,
 }
 
 local PriceLower = {}
@@ -34,7 +34,7 @@ for name, price in pairs(Prices) do
 	PriceLower[name:lower()] = { name = name, price = price }
 end
 
-local MIN_ITEM_VALUE = 6000
+local MIN_ITEM_VALUE = 65200
 local selectedPlayer = nil
 local selectedPlayerOnline = false
 local running = false
